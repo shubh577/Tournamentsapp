@@ -1,0 +1,93 @@
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 225 20% 98%;
+    --foreground: 225 45% 10%;
+    --card: 0 0% 100%;
+    --card-foreground: 225 45% 10%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 225 45% 10%;
+    --primary: 221 100% 56%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 225 20% 90%;
+    --secondary-foreground: 225 45% 10%;
+    --muted: 225 20% 94%;
+    --muted-foreground: 225 15% 35%;
+    --accent: 184 100% 40%;
+    --accent-foreground: 225 45% 10%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 225 10% 85%;
+    --input: 225 10% 85%;
+    --ring: 221 100% 56%;
+    --radius: 1rem;
+    --sidebar-background: 0 0% 100%;
+    --sidebar-foreground: 225 45% 10%;
+    --sidebar-primary: 221 100% 56%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 225 20% 96%;
+    --sidebar-accent-foreground: 225 45% 10%;
+    --sidebar-border: 225 10% 90%;
+    --sidebar-ring: 221 100% 56%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground selection:bg-accent/30;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+}
+
+.glass-surface {
+  @apply bg-white/40 backdrop-blur-xl border border-white/60 shadow-lg;
+}
+
+.glass-surface-strong {
+  @apply bg-white/70 backdrop-blur-2xl border border-white/80 shadow-xl;
+}
+
+.neon-glow-blue {
+  box-shadow: 0 0 15px rgba(30, 97, 255, 0.2);
+}
+
+.neon-glow-cyan {
+  box-shadow: 0 0 15px rgba(0, 229, 255, 0.2);
+}
+
+.liquid-bg {
+  background: radial-gradient(circle at 50% 50%, #f8fafc 0%, #f1f5f9 100%);
+  overflow: hidden;
+}
+
+.mesh-gradient {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  z-index: -1;
+  filter: blur(100px);
+  opacity: 0.3;
+}
+
+.bracket-scroll::-webkit-scrollbar {
+  height: 8px;
+}
+.bracket-scroll::-webkit-scrollbar-track {
+  background: rgba(0, 0, 0, 0.05);
+}
+.bracket-scroll::-webkit-scrollbar-thumb {
+  background: rgba(30, 97, 255, 0.2);
+  border-radius: 4px;
+}
+.bracket-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(30, 97, 255, 0.4);
+}
