@@ -8,10 +8,12 @@ import GlassCard from "@/components/glass/GlassCard";
 import { motion } from "framer-motion";
 import { Trophy, Zap, Shield, Globe, ArrowRight, LogOut } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 
 export default function Home() {
   const [session, setSession] = useState<Session | null>(null);
   const [loading, setLoading] = useState(true);
+  const router = useRouter();
 
   useEffect(() => {
     const getSession = async () => {
@@ -27,14 +29,29 @@ export default function Home() {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange(async (_event, session) => {
       setSession(session);
+      if (session) {
+        // Check if the user has completed onboarding
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('onboarding_completed')
+          .eq('id', session.user.id)
+          .single();
+
+        if (profile && !profile.onboarding_completed) {
+          router.push('/onboarding');
+        } else if (!profile) {
+          // Profile doesn't exist, so they need to onboard
+          router.push('/onboarding');
+        }
+      }
     });
 
     return () => {
       subscription.unsubscribe();
     };
-  }, []);
+  }, [router]);
 
   const handleSignOut = async () => {
     await supabase.auth.signOut();
