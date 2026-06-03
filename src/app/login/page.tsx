@@ -10,11 +10,11 @@ export default function LoginPage() {
   return (
     <div className="flex flex-col items-center justify-center min-h-screen">
       <nav className="h-20 border-b border-black/5 backdrop-blur-md sticky top-0 z-50 px-6 flex items-center justify-between w-full">
-        <Link href="/dashboard/overview" className="flex items-center gap-2 transition-transform hover:scale-105 active:scale-95">
+        <Link href="/" className="flex items-center gap-2 transition-transform hover:scale-105 active:scale-95">
           <img 
             src="/logo.webp" 
             alt="Tourney Hub Logo" 
-            className="h-10 w-auto object-contain" 
+            className="h-16 w-auto object-contain" 
           />
         </Link>
   

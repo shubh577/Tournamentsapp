@@ -2,8 +2,8 @@
 
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
-import { motion, useScroll, useTransform, Variants} from 'framer-motion'
-import { Trophy, Zap, Shield, Globe, ArrowRight, Activity, Users, Calendar, ChevronRight, Play } from 'lucide-react'
+import { motion, useScroll, useTransform, Variants } from 'framer-motion'
+import { Trophy, Zap, Shield, ArrowRight, Activity, Users, Play, Loader2 } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import AppHeader from '@/components/layout/AppHeader'
@@ -16,26 +16,27 @@ export default function LandingPage() {
   const y = useTransform(scrollYProgress, [0, 1], ['0%', '50%'])
 
   const [authChecking, setAuthChecking] = useState(true)
+  const [isAuthenticated, setIsAuthenticated] = useState(false)
 
   useEffect(() => {
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
       if (session) {
+        // Double check onboarding status
         const { data: profile } = await supabase
           .from('profiles')
           .select('onboarding_completed')
           .eq('id', session.user.id)
           .single()
 
-        if (profile && !profile.onboarding_completed) {
-          router.push('/onboarding')
-        } else if (!profile) {
+        if (!profile || !profile.onboarding_completed) {
           router.push('/onboarding')
         } else {
-          router.push('/dashboard/overview') 
+          setIsAuthenticated(true)
         }
       } else {
-        setAuthChecking(false)
+        setIsAuthenticated(false)
       }
+      setAuthChecking(false)
     })
 
     return () => subscription.unsubscribe()
@@ -47,18 +48,20 @@ export default function LandingPage() {
     visible: { opacity: 1, y: 0, transition: { duration: 0.6, ease: "easeOut" } }
   }
 
-  if (authChecking) return null; 
+  // Dynamic values for CTA buttons
+  const ctaText = authChecking ? "Loading..." : (isAuthenticated ? "Access Dashboard" : "Get Started")
+  const ctaLink = isAuthenticated ? "/dashboard/overview" : "/login"
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 overflow-hidden selection:bg-primary/30">
       
-      {/* --- AMBIENT BACKGROUND GLOWS (Light Theme Adjusted) --- */}
+      {/* --- AMBIENT BACKGROUND GLOWS (Light Theme) --- */}
       <div className="fixed inset-0 z-0 pointer-events-none overflow-hidden">
         <motion.div style={{ y }} className="absolute -top-[20%] -left-[10%] w-[50%] h-[50%] rounded-full bg-primary/10 blur-[120px]" />
         <motion.div style={{ y }} className="absolute top-[40%] -right-[10%] w-[40%] h-[60%] rounded-full bg-blue-400/10 blur-[120px]" />
       </div>
 
-      {/* Grid Pattern Overlay (Light Theme) */}
+      {/* Grid Pattern Overlay */}
       <div className="fixed inset-0 z-0 pointer-events-none bg-[url('https://grainy-gradients.vercel.app/noise.svg')] opacity-[0.03] mix-blend-multiply" />
       <div className="fixed inset-0 z-0 pointer-events-none bg-[linear-gradient(to_right,#0000000a_1px,transparent_1px),linear-gradient(to_bottom,#0000000a_1px,transparent_1px)] bg-[size:4rem_4rem] [mask-image:radial-gradient(ellipse_60%_50%_at_50%_0%,#000_70%,transparent_100%)]" />
 
@@ -89,9 +92,14 @@ export default function LandingPage() {
               </motion.p>
               
               <motion.div variants={fadeUp} className="flex flex-col sm:flex-row items-center justify-center lg:justify-start gap-4">
-                <Link href="/login" className="w-full sm:w-auto">
-                  <button className="w-full sm:w-auto px-8 h-14 rounded-xl bg-primary text-primary-foreground font-bold text-lg shadow-[0_10px_30px_rgba(var(--primary-rgb),0.3)] hover:shadow-[0_15px_40px_rgba(var(--primary-rgb),0.4)] hover:-translate-y-1 transition-all flex items-center justify-center gap-2 group">
-                    Enter The Dashboard <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
+                <Link href={ctaLink} className="w-full sm:w-auto">
+                  <button 
+                    disabled={authChecking}
+                    className="w-full sm:w-auto px-8 h-14 rounded-xl bg-primary text-primary-foreground font-bold text-lg shadow-[0_10px_30px_rgba(var(--primary-rgb),0.3)] hover:shadow-[0_15px_40px_rgba(var(--primary-rgb),0.4)] hover:-translate-y-1 transition-all flex items-center justify-center gap-2 group disabled:opacity-80 disabled:hover:translate-y-0"
+                  >
+                    {authChecking && <Loader2 className="w-5 h-5 animate-spin" />}
+                    {!authChecking && ctaText}
+                    {!authChecking && <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />}
                   </button>
                 </Link>
                 <Link href="#features" className="w-full sm:w-auto">
@@ -175,10 +183,8 @@ export default function LandingPage() {
                     <p className="text-slate-600 text-lg max-w-md">Our algorithm pairs approved teams, generates rounds, and manages byes instantly. Just click generate and watch the magic happen.</p>
                   </div>
                   
-                  {/* Abstract Bracket Visual */}
                   <div className="mt-8 relative h-32 w-full">
                      <div className="absolute right-0 bottom-0 w-[120%] h-[150%] bg-[url('/bracket-pattern.svg')] bg-cover opacity-[0.03] group-hover:scale-105 transition-transform duration-700 origin-bottom-right" />
-                     {/* CSS-drawn abstract bracket for effect */}
                      <div className="absolute right-4 bottom-4 flex gap-4">
                         <div className="flex flex-col gap-4 border-r-2 border-slate-100 pr-4 py-4"><div className="w-24 h-8 bg-slate-50 border border-slate-100 rounded-md" /><div className="w-24 h-8 bg-slate-50 border border-slate-100 rounded-md" /></div>
                         <div className="flex flex-col justify-center border-r-2 border-slate-100 pr-4"><div className="w-24 h-8 bg-primary/10 border border-primary/20 rounded-md" /></div>
@@ -245,9 +251,13 @@ export default function LandingPage() {
             <h2 className="text-5xl md:text-7xl font-black font-headline mb-6 leading-tight text-slate-900">Are you ready to play?</h2>
             <p className="text-xl text-slate-600 mb-12 max-w-2xl mx-auto">Join the organizers and coaches who are already scaling their operations. No credit card required.</p>
             
-            <Link href="/login">
-              <button className="px-10 h-16 rounded-2xl bg-slate-900 text-white font-black text-xl shadow-[0_15px_30px_rgba(0,0,0,0.15)] hover:shadow-[0_20px_40px_rgba(0,0,0,0.2)] hover:-translate-y-1 transition-all">
-                Create Your Account
+            <Link href={ctaLink}>
+              <button 
+                disabled={authChecking}
+                className="px-10 h-16 rounded-2xl bg-slate-900 text-white font-black text-xl shadow-[0_15px_30px_rgba(0,0,0,0.15)] hover:shadow-[0_20px_40px_rgba(0,0,0,0.2)] hover:-translate-y-1 transition-all flex items-center justify-center gap-2 mx-auto disabled:opacity-80 disabled:hover:translate-y-0"
+              >
+                {authChecking && <Loader2 className="w-5 h-5 animate-spin" />}
+                {!authChecking && ctaText}
               </button>
             </Link>
             <p className="mt-6 text-sm text-slate-400 uppercase tracking-widest font-bold">#PlayByNewRules</p>
@@ -256,24 +266,25 @@ export default function LandingPage() {
 
         {/* --- FOOTER --- */}
         <footer className="bg-slate-50 border-t border-slate-200 py-12 px-4">
-          <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-6">          
-            {/* Replaced text with image logo */}
-            <div className="flex items-center">
-              <img 
-                src="/logo.webp" 
-                alt="Martial Grid Logo" 
-                className="h-10 w-auto object-contain" 
-              />
-            </div>         
+          <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-6">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center shadow-sm">
+                <Trophy className="w-5 h-5 text-white" />
+              </div>
+              <span className="font-headline font-bold text-xl tracking-tight text-slate-900">TOURNEY HUB</span>
+            </div>
+            
             <div className="flex gap-6 text-sm text-slate-500 font-medium">
               <Link href="/login" className="hover:text-primary transition-colors">Login</Link>
               <Link href="/dashboard/overview" className="hover:text-primary transition-colors">Dashboard</Link>
-              <span className="cursor-not-allowed hover:text-slate-700 transition-colors">Privacy</span>
-              <span className="cursor-not-allowed hover:text-slate-700 transition-colors">Terms</span>
+              <span className="cursor-not-allowed">Privacy</span>
+              <span className="cursor-not-allowed">Terms</span>
             </div>
-            <p className="text-xs text-slate-400">© 2026 Martial Grid. All rights reserved.</p>
+            
+            <p className="text-xs text-slate-400">© 2026 Tourney Hub. All rights reserved.</p>
           </div>
         </footer>
+
       </div>
     </div>
   )

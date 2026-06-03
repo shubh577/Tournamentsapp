@@ -7,6 +7,7 @@ import GlassButton from "@/components/glass/GlassButton"
 import { Users, Search, Plus, Trophy, Mail, Loader2, ShieldCheck, MapPin } from "lucide-react"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
+import Link from "next/link"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import { motion, AnimatePresence } from "framer-motion"
@@ -197,13 +198,16 @@ export default function TeamsDashboard() {
                        </span>
                     </div>
 
-                    <div className="flex gap-3 pt-4 border-t border-white/10">
-                       <GlassButton variant="outline" size="sm" className="flex-1 text-[10px] font-bold tracking-widest hover:bg-white/5 transition-colors">
+                    <div className="flex gap-3 pt-4 border-t border-black/10 dark:border-white/10">
+                     <Link href={`/team/${team.id}`} className="flex-1">
+                       <GlassButton 
+                         variant="outline" 
+                         size="sm" 
+                         className="w-full text-[10px] font-bold tracking-widest text-foreground border-black/20 dark:border-white/20 hover:bg-black/5 dark:hover:bg-white/10 transition-colors"
+                       >
                          VIEW ROSTER
                        </GlassButton>
-                       <GlassButton variant="secondary" size="sm" className="px-3 hover:text-primary transition-colors">
-                         <Mail className="w-4 h-4" />
-                       </GlassButton>
+                     </Link>
                     </div>
                   </div>
                 </GlassCard>

@@ -167,7 +167,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <div className={cn("flex items-center mb-7 pt-6", isCollapsed ? "justify-center px-0" : "px-6 justify-between")}>
           <Link href="/" className="flex items-center justify-center">
             <img 
-              src="/logo.webp" 
+              src={isCollapsed ? "/icon.png" : "/logo.webp"} 
               alt="Martial Grid Logo" 
               className={cn("transition-all duration-300 object-contain", isCollapsed ? "h-10 w-10" : "h-20 w-auto")} 
             />

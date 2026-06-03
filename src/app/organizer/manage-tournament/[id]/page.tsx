@@ -9,6 +9,7 @@ import GlassButton from '@/components/glass/GlassButton';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import Link from 'next/link';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -425,7 +426,7 @@ const ManageTournamentPage = () => {
                     {/* PARTICIPANTS & TEAMS TAB */}
                     {activeTab === 'participants' && (
                         <div className="space-y-6">
-                            
+        
                             {/* Approved Teams Section */}
                             <GlassCard className="p-6">
                                 <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 mb-6 border-b border-white/10 pb-4">
@@ -453,9 +454,17 @@ const ManageTournamentPage = () => {
                                         {participants.map((team) => (
                                             <div key={team.id} className="flex items-center justify-between p-4 bg-white/5 rounded-xl border border-white/10">
                                                 <div className="flex items-center gap-4 overflow-hidden">
-                                                    <Avatar className="w-12 h-12 border border-white/20"><AvatarImage src={team.logo_url} /><AvatarFallback className="bg-primary/20 text-primary">{team.name?.charAt(0)}</AvatarFallback></Avatar>
+                                                    <Avatar className="w-12 h-12 border border-white/20">
+                                                        <AvatarImage src={team.logo_url} />
+                                                        <AvatarFallback className="bg-primary/20 text-primary">{team.name?.charAt(0)}</AvatarFallback>
+                                                    </Avatar>
                                                     <div className="overflow-hidden">
-                                                        <h4 className="font-bold text-lg truncate">{team.name}</h4>
+                                                                            {/* Made the team name clickable linking to the Team Details page */}
+                                                        <Link href={`/team/${team.id}`}>
+                                                            <h4 className="font-bold text-lg truncate hover:text-primary transition-colors cursor-pointer">
+                                                                {team.name}
+                                                            </h4>
+                                                        </Link>
                                                         <p className="text-xs text-muted-foreground truncate">Status: {team.status || 'Enrolled'}</p>
                                                     </div>
                                                 </div>
@@ -479,7 +488,7 @@ const ManageTournamentPage = () => {
                                                 {availableCoaches.map(coach => {
                                                     const isAlreadyApproved = participants.some(p => p.coach_id === coach.id);
                                                     const isPending = pendingInvites.includes(coach.id);
-
+                    
                                                     return (
                                                         <div key={coach.id} className="p-4 bg-black/40 rounded-xl border border-white/5 flex items-center justify-between">
                                                             <div className="overflow-hidden pr-2">
