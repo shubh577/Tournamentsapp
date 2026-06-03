@@ -10,17 +10,15 @@ export default function LoginPage() {
   return (
     <div className="flex flex-col items-center justify-center min-h-screen">
       <nav className="h-20 border-b border-black/5 backdrop-blur-md sticky top-0 z-50 px-6 flex items-center justify-between w-full">
-        <div className="flex items-center gap-2">
-          <div className="w-8 h-8 bg-primary rounded-lg neon-glow-blue flex items-center justify-center">
-            <Zap className="text-white w-5 h-5 fill-current" />
-          </div>
-          <span className="font-headline text-xl font-bold tracking-tight text-foreground">MARTIAL GRID</span>
-        </div>
-        <div className="flex items-center gap-4">
-          <Link href="/explore" className="text-muted-foreground hover:text-foreground transition-colors text-sm">Explore</Link>
-          <Link href="/dashboard" className="text-muted-foreground hover:text-foreground transition-colors text-sm">Coach Dashboard</Link>
-          <Link href="/portal" className="text-muted-foreground hover:text-foreground transition-colors text-sm">Player Portal</Link>
-        </div>
+        <Link href="/dashboard/overview" className="flex items-center gap-2 transition-transform hover:scale-105 active:scale-95">
+          <img 
+            src="/logo.webp" 
+            alt="Tourney Hub Logo" 
+            className="h-10 w-auto object-contain" 
+          />
+        </Link>
+  
+        {/* Rest of your navbar items go here */}
       </nav>
       <div className="flex flex-col items-center justify-center flex-grow">
         <motion.div
