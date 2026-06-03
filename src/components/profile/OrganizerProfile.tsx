@@ -6,6 +6,7 @@ import GlassCard from '@/components/glass/GlassCard'
 import { Button } from '@/components/ui/button'
 import { Pencil, Trophy, CalendarPlus, LogOut } from 'lucide-react'
 import { motion } from 'framer-motion'
+import Link from 'next/link';
 import imageCompression from 'browser-image-compression';
 
 // Re-using the EditableField would be ideal
@@ -148,8 +149,14 @@ export default function OrganizerProfile({ profile, setProfile }: { profile: any
       </div>
 
       <div className="flex justify-between items-center mt-12">
-          <Button variant="outline" onClick={handleLogout}><LogOut className="mr-2" /> Log Out</Button>
-          <Button><CalendarPlus className="mr-2" /> Organize a Tournament</Button>
+          <Button variant="outline" onClick={handleLogout}>
+              <LogOut className="mr-2" /> Log Out
+          </Button>
+          <Link href="/organizer/create-tournament">
+              <Button>
+                  <CalendarPlus className="mr-2" /> Organize a Tournament
+              </Button>
+          </Link>
       </div>
     </GlassCard>
   )

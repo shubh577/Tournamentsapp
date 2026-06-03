@@ -6,6 +6,10 @@ import LiquidBackground from '@/components/layout/LiquidBackground';
 export const metadata: Metadata = {
   title: 'Martial Grid | Elite Tournament Management',
   description: 'Next-gen multi-sport tournament management.',
+  icons: {
+    icon: '/icon.png', // Or '/icon.svg'
+    apple: '/apple-icon.png',
+  },
 };
 
 export default function RootLayout({
