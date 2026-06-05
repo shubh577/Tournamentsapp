@@ -57,7 +57,8 @@ const MatchScoringPage = () => {
                    setScoreData(payload.new.score_data);
                 }
                 if (payload.new.status) {
-                    setMatch(prev => ({...prev, status: payload.new.status}));
+                    // FIX: Added explicit (prev: any) typing
+                    setMatch((prev: any) => ({...prev, status: payload.new.status}));
                 }
             })
             .on('postgres_changes', { 
@@ -66,7 +67,8 @@ const MatchScoringPage = () => {
                 table: 'match_events', 
                 filter: `match_id=eq.${matchId}` 
             }, (payload) => {
-                setEvents(prev => [payload.new, ...prev]);
+                // FIX: Added explicit (prev: any[]) typing
+                setEvents((prev: any[]) => [payload.new, ...prev]);
             })
             .subscribe();
 
@@ -133,10 +135,10 @@ const MatchScoringPage = () => {
         let interval: NodeJS.Timeout;
         if (isTimerRunning && timeLeft !== null && timeLeft > 0) {
             interval = setInterval(() => {
-                setTimeLeft((prev) => (prev !== null && prev > 0 ? prev - 1 : 0));
+                // FIX: Added explicit (prev: number | null) typing
+                setTimeLeft((prev: number | null) => (prev !== null && prev > 0 ? prev - 1 : 0));
             }, 1000);
         } else if (isTimerRunning && timeLeft === 0) {
-            // FIX: Removed Auto-Complete Navigation. It just pauses and alerts now.
             setIsTimerRunning(false);
             setTimeout(() => {
                 alert(`⏰ TIME IS UP! The clock has hit zero. Please review the scores and finalize the match manually.`);
@@ -194,7 +196,7 @@ const MatchScoringPage = () => {
 
         setIsUpdating(true);
 
-        // FIX: Always calculate off the ref to prevent rapid-tap overwrites
+        // Always calculate off the ref to prevent rapid-tap overwrites
         const latestData = scoreDataRef.current;
         const currentTeamData = latestData[teamId] || { score: 0, secondary: 0, tertiary: 0, warnings: 0 };
         
@@ -216,8 +218,8 @@ const MatchScoringPage = () => {
             created_at: new Date().toISOString()
         };
 
-        // We optimistically update the events array, the realtime channel will catch the real DB insert
-        setEvents(prev => [newEvent, ...prev]);
+        // FIX: Added explicit (prev: any[]) typing
+        setEvents((prev: any[]) => [newEvent, ...prev]);
 
         const [updateRes, insertRes] = await Promise.all([
             supabase.from('matches').update({ score_data: updatedScoreData }).eq('id', matchId),
@@ -235,7 +237,7 @@ const MatchScoringPage = () => {
 
         setIsUpdating(false);
 
-        // DISQUALIFICATION ENGINE (5 Warnings) - Removed auto-navigate
+        // DISQUALIFICATION ENGINE (5 Warnings)
         if (newTeamData.warnings >= 5 && match.status !== 'completed') {
             setTimeout(() => {
                 alert(`🚨 DISQUALIFICATION: ${teamName} has received 5 warnings! Please finalize the match.`);
@@ -257,9 +259,10 @@ const MatchScoringPage = () => {
         setIsUpdating(false);
 
         if (!error) {
-            setMatch(prev => ({...prev, status: 'completed'}));
+            // FIX: Added explicit (prev: any) typing
+            setMatch((prev: any) => ({...prev, status: 'completed'}));
             alert("Match Finalized!");
-            // FIX: Null check routing
+            
             if (tournament?.id) {
                 router.push(`/organizer/manage-tournament/${tournament.id}`);
             } else {
