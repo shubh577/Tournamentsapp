@@ -27,7 +27,7 @@ import { Notifications } from "@/components/Notifications"
 const PUBLIC_DASHBOARD_ROUTES = ['/dashboard/pulse', '/dashboard/tournaments', '/dashboard/teams', '/dashboard/community'];
 
 // --- USER PROFILE NAV ---
-const UserProfileNav = ({ profile, loading }: { profile: any, loading: boolean }) => {
+const UserProfileNav = ({ profile, loading, isCollapsed }: { profile: any, loading: boolean, isCollapsed: boolean }) => {
   const handleSignOut = async () => {
     await supabase.auth.signOut()
     window.location.href = '/'
@@ -41,8 +41,9 @@ const UserProfileNav = ({ profile, loading }: { profile: any, loading: boolean }
   if (profile?.isGuest) {
     return (
       <Link href="/login" className="w-full">
-        <Button className="w-full shadow-lg gap-2" variant="default">
-          <UserPlus className="w-4 h-4" /> Sign In
+        <Button className={cn("w-full shadow-lg gap-2", isCollapsed && "justify-center")} variant="default">
+          <UserPlus className="w-4 h-4" />
+          {!isCollapsed && <span>Sign In / Join</span>}
         </Button>
       </Link>
     )
@@ -56,7 +57,7 @@ const UserProfileNav = ({ profile, loading }: { profile: any, loading: boolean }
                 <AvatarImage src={profile?.avatar_url} alt={profile?.name} />
                 <AvatarFallback className="bg-primary/20 text-primary font-bold">{profile?.name?.charAt(0) || 'U'}</AvatarFallback>
             </Avatar>
-            <div className="flex-1 overflow-hidden hidden md:block">
+            <div className={cn("flex-1 overflow-hidden", isCollapsed ? "hidden" : "block")}>
                 <p className="text-sm font-bold truncate text-foreground">{profile?.name}</p>
                 <p className="text-[10px] uppercase tracking-widest text-primary font-bold">{profile?.role}</p>
             </div>
@@ -203,7 +204,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
         {/* Bottom Profile / Sign In Section */}
         <div className="p-4 border-t border-white/5 bg-black/20">
-            <UserProfileNav profile={profile} loading={loading} />
+            <UserProfileNav profile={profile} loading={loading} isCollapsed={isCollapsed} />
         </div>
       </aside>
 
