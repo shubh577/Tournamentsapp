@@ -13,7 +13,7 @@ import Link from 'next/link';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Textarea } from '@/components/ui/textarea';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { ChevronLeft, Loader2, Edit, Users, ShieldCheck, Trophy, Settings, Clock, ArrowRight, Save, Calendar, MapPin, UserPlus, X, CheckCircle2, AlertCircle, AlertTriangle } from 'lucide-react';
+import { ChevronLeft, Loader2, Edit, Users, ShieldCheck, Trophy, Settings, Clock, ArrowRight, Save, Calendar, MapPin, UserPlus, X, CheckCircle2, AlertCircle, AlertTriangle, Plus, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const ManageTournamentPage = () => {
@@ -37,6 +37,9 @@ const ManageTournamentPage = () => {
     const [pendingInvites, setPendingInvites] = useState<string[]>([]);
     const [showInviteSection, setShowInviteSection] = useState(false);
     const [invitingCoachId, setInvitingCoachId] = useState<string | null>(null);
+
+    // Dynamic Category Builder Input States
+    const [categoryInputVals, setCategoryInputVals] = useState<Record<string, string>>({});
 
     // Loading States
     const [matchLoading, setMatchLoading] = useState(false);
@@ -139,6 +142,51 @@ const ManageTournamentPage = () => {
         }));
     };
 
+    // --- DYNAMIC CATEGORY BUILDER ENGINE ---
+    const getCategories = () => tournament?.rules?.registration_categories || [];
+
+    const updateCategories = (newCategories: any[]) => {
+        setTournament((prev: any) => ({
+            ...prev,
+            rules: { ...prev.rules, registration_categories: newCategories }
+        }));
+    };
+
+    const handleAddCategory = () => {
+        const newId = Math.random().toString(36).substring(7);
+        updateCategories([...getCategories(), { id: newId, name: '', options: [] }]);
+    };
+
+    const handleCategoryNameChange = (id: string, name: string) => {
+        updateCategories(getCategories().map((c: any) => c.id === id ? { ...c, name } : c));
+    };
+
+    const handleRemoveCategory = (id: string) => {
+        updateCategories(getCategories().filter((c: any) => c.id !== id));
+        setCategoryInputVals(prev => {
+            const next = { ...prev };
+            delete next[id];
+            return next;
+        });
+    };
+
+    const handleAddCategoryOption = (id: string) => {
+        const val = categoryInputVals[id]?.trim();
+        if (!val) return;
+
+        updateCategories(getCategories().map((c: any) => 
+            c.id === id ? { ...c, options: [...(c.options || []), val] } : c
+        ));
+        
+        setCategoryInputVals(prev => ({ ...prev, [id]: '' }));
+    };
+
+    const handleRemoveCategoryOption = (id: string, optIndex: number) => {
+        updateCategories(getCategories().map((c: any) => 
+            c.id === id ? { ...c, options: c.options.filter((_: any, idx: number) => idx !== optIndex) } : c
+        ));
+    };
+
     const saveChanges = async () => {
         setSaving(true);
         const { error } = await supabase
@@ -183,7 +231,6 @@ const ManageTournamentPage = () => {
     };
 
     const handleSendInvite = async (coachId: string) => {
-        // FIX: Respect infinite limit (0 or null)
         const limit = tournament.max_teams || 0;
         if (limit > 0 && participants.length + pendingInvites.length >= limit) {
             showToast("You have reached the maximum number of teams.", "error");
@@ -324,21 +371,51 @@ const ManageTournamentPage = () => {
                             <Label>Competition Category</Label>
                             <Select onValueChange={v => handleRuleChange('competition_type', v)} value={tournament.rules?.competition_type || ''}>
                                 <SelectTrigger className="bg-white/5"><SelectValue placeholder="Category" /></SelectTrigger>
-                                <SelectContent><SelectItem value="Kumite">Kumite (Sparring Only)</SelectItem><SelectItem value="Kata">Kata (Forms Only)</SelectItem><SelectItem value="Kata + Kumite">Kata + Kumite (Both)</SelectItem></SelectContent>
+                                <SelectContent>
+                                    <SelectItem value="Kumite">Kumite (Sparring Only)</SelectItem>
+                                    <SelectItem value="Kata">Kata (Forms Only)</SelectItem>
+                                    <SelectItem value="Kata + Kumite">Kata + Kumite (Both)</SelectItem>
+                                </SelectContent>
                             </Select>
                         </div>
                         <div className="space-y-2">
-                            <Label>Belt Category</Label>
-                            <Select onValueChange={v => handleRuleChange('belt_category', v)} value={tournament.rules?.belt_category || ''}>
-                                <SelectTrigger className="bg-white/5"><SelectValue placeholder="Belt" /></SelectTrigger>
-                                <SelectContent><SelectItem value="White/Yellow">White / Yellow</SelectItem><SelectItem value="Orange/Green">Orange / Green</SelectItem><SelectItem value="Blue/Brown">Blue / Brown</SelectItem><SelectItem value="Black">Black Belt</SelectItem><SelectItem value="Open">Open Belt</SelectItem></SelectContent>
-                            </Select>
+                            <Label>Match Duration (Mins)</Label>
+                            <Input type="number" className="bg-white/5" value={tournament.rules?.match_duration || ''} onChange={(e) => handleRuleChange('match_duration', e.target.value)} />
                         </div>
-                        <div className="space-y-2"><Label>Match Duration (Mins)</Label><Input type="number" className="bg-white/5" value={tournament.rules?.match_duration || ''} onChange={(e) => handleRuleChange('match_duration', e.target.value)} /></div>
-                        <div className="space-y-2"><Label>Categories / Weights</Label><Input className="bg-white/5" value={tournament.rules?.categories || ''} onChange={(e) => handleRuleChange('categories', e.target.value)} /></div>
                     </>
                 )}
-                {/* Fallback & Additional Rules for all sports */}
+                {sport === 'judo' && (
+                    <>
+                        <div className="space-y-2">
+                            <Label>Golden Score Rules</Label>
+                            <Select onValueChange={v => handleRuleChange('golden_score', v)} value={tournament.rules?.golden_score || ''}>
+                                <SelectTrigger className="bg-white/5"><SelectValue placeholder="Golden Score Rules" /></SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="Unlimited">Unlimited Time</SelectItem>
+                                    <SelectItem value="Time Limit">Time Limit Applied</SelectItem>
+                                    <SelectItem value="None">No Golden Score (Draws allowed)</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                        <div className="space-y-2">
+                            <Label>Standard Match Time (Mins)</Label>
+                            <Input type="number" className="bg-white/5" value={tournament.rules?.match_duration || ''} onChange={(e) => handleRuleChange('match_duration', e.target.value)} />
+                        </div>
+                        <div className="space-y-2 col-span-full">
+                            <Label>Allowed Grades</Label>
+                            <Select onValueChange={v => handleRuleChange('allowed_grades', v)} value={tournament.rules?.allowed_grades || ''}>
+                                <SelectTrigger className="bg-white/5"><SelectValue placeholder="Allowed Grades" /></SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="Kyu Only">Kyu Grades Only</SelectItem>
+                                    <SelectItem value="Dan Only">Dan Grades Only</SelectItem>
+                                    <SelectItem value="Open">Open to All Grades</SelectItem>
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    </>
+                )}
+                
+                {/* Additional Rules for all sports */}
                 <div className="col-span-full space-y-2">
                     <Label>Additional Rules / Notes</Label>
                     <Textarea className="bg-white/5 min-h-[100px]" value={tournament.additional_rules || ''} onChange={(e) => handleDetailChange('additional_rules', e.target.value)} />
@@ -475,10 +552,88 @@ const ManageTournamentPage = () => {
 
                     {/* SETTINGS TAB */}
                     {activeTab === 'settings' && (
-                        <GlassCard className="p-6 sm:p-10">
-                            <h2 className="text-2xl font-bold mb-6 border-b border-white/10 pb-4 capitalize">{tournament.sport} specific Rules</h2>
-                            {renderSportRules()}
-                        </GlassCard>
+                        <div className="space-y-6">
+                            <GlassCard className="p-6 sm:p-10">
+                                <h2 className="text-2xl font-bold mb-6 border-b border-white/10 pb-4 capitalize">{tournament.sport} specific Rules</h2>
+                                {renderSportRules()}
+                            </GlassCard>
+
+                            {/* --- DYNAMIC CATEGORY BUILDER --- */}
+                            <GlassCard className="p-6 sm:p-10">
+                                <div className="flex items-center justify-between border-b border-white/10 pb-4 mb-6">
+                                    <div>
+                                        <h2 className="text-2xl font-bold">Registration Categories</h2>
+                                        <p className="text-sm text-muted-foreground mt-1">Manage groups for coaches to register their players under (e.g., Weight Classes, Age, Gender).</p>
+                                    </div>
+                                    <Button variant="outline" size="sm" onClick={handleAddCategory} className="bg-white/5 hover:bg-white/10 shrink-0">
+                                        <Plus className="w-4 h-4 mr-2" /> Add Category
+                                    </Button>
+                                </div>
+
+                                <div className="space-y-4">
+                                    {getCategories().map((cat: any) => (
+                                        <div key={cat.id} className="p-5 bg-black/20 border border-white/10 rounded-xl space-y-4 relative group">
+                                            <div className="flex flex-col sm:flex-row gap-4 items-start">
+                                                <div className="flex-1 space-y-2 w-full">
+                                                    <Label className="text-muted-foreground">Category Name</Label>
+                                                    <Input 
+                                                        placeholder="e.g., Weight Class, Gender, Belt" 
+                                                        value={cat.name} 
+                                                        onChange={e => handleCategoryNameChange(cat.id, e.target.value)} 
+                                                        className="bg-white/5 border-white/10 h-12 font-bold" 
+                                                    />
+                                                </div>
+                                                <Button 
+                                                    variant="ghost" 
+                                                    size="icon" 
+                                                    onClick={() => handleRemoveCategory(cat.id)} 
+                                                    className="mt-8 text-red-400 hover:text-red-300 hover:bg-red-500/10 shrink-0"
+                                                >
+                                                    <Trash2 className="w-4 h-4" />
+                                                </Button>
+                                            </div>
+
+                                            <div className="space-y-2">
+                                                <Label className="text-muted-foreground">Add Sub-Categories / Options</Label>
+                                                <div className="flex gap-2">
+                                                    <Input
+                                                        placeholder="e.g., -61kg, +55kg, Male, U18..."
+                                                        value={categoryInputVals[cat.id] || ''}
+                                                        onChange={e => setCategoryInputVals(prev => ({...prev, [cat.id]: e.target.value}))}
+                                                        onKeyDown={e => {
+                                                            if (e.key === 'Enter') {
+                                                                e.preventDefault();
+                                                                handleAddCategoryOption(cat.id);
+                                                            }
+                                                        }}
+                                                        className="bg-white/5 border-white/10"
+                                                    />
+                                                    <Button variant="secondary" onClick={() => handleAddCategoryOption(cat.id)} className="shrink-0 bg-primary/20 text-primary hover:bg-primary/30">
+                                                        <Plus className="w-5 h-5" />
+                                                    </Button>
+                                                </div>
+                                                
+                                                {(cat.options || []).length > 0 && (
+                                                    <div className="flex flex-wrap gap-2 mt-4 pt-2">
+                                                        {cat.options.map((opt: string, optIdx: number) => (
+                                                            <span key={optIdx} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 border border-white/20 text-sm font-medium">
+                                                                {opt}
+                                                                <X className="w-3 h-3 cursor-pointer text-muted-foreground hover:text-red-400 transition-colors" onClick={() => handleRemoveCategoryOption(cat.id, optIdx)} />
+                                                            </span>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ))}
+                                    {getCategories().length === 0 && (
+                                        <div className="text-center py-8 text-muted-foreground text-sm italic border border-dashed border-white/10 rounded-xl">
+                                            No custom categories added.
+                                        </div>
+                                    )}
+                                </div>
+                            </GlassCard>
+                        </div>
                     )}
 
                     {/* PARTICIPANTS & TEAMS TAB */}

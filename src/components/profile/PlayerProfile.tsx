@@ -45,11 +45,11 @@ const EditableField = ({ value, onSave, label }: { value: string, onSave: (newVa
 // Enhanced Badge Component
 const ExpertiseBadge = ({ badge }: { badge: string }) => {
     const badgeStyles: any = {
-        Wooden: { bg: 'bg-amber-800', text: 'text-amber-200', shadow: 'shadow-amber-900/50' },
-        Bronze: { bg: 'bg-orange-700', text: 'text-orange-200', shadow: 'shadow-orange-900/50' },
-        Silver: { bg: 'bg-gray-500', text: 'text-gray-100', shadow: 'shadow-gray-700/50' },
-        Gold: { bg: 'bg-yellow-500', text: 'text-yellow-900', shadow: 'shadow-yellow-600/50' },
-        Elite: { bg: 'bg-purple-600', text: 'text-purple-100', shadow: 'shadow-purple-700/50' },
+        Zonal: { bg: 'bg-amber-800', text: 'text-amber-200', shadow: 'shadow-amber-900/50' },
+        District: { bg: 'bg-orange-700', text: 'text-orange-200', shadow: 'shadow-orange-900/50' },
+        State: { bg: 'bg-gray-500', text: 'text-gray-100', shadow: 'shadow-gray-700/50' },
+        National: { bg: 'bg-yellow-500', text: 'text-yellow-900', shadow: 'shadow-yellow-600/50' },
+        International: { bg: 'bg-purple-600', text: 'text-purple-100', shadow: 'shadow-purple-700/50' },
     };
 
     const style = badgeStyles[badge] || { bg: 'bg-gray-400', text: 'text-gray-900', shadow: 'shadow-gray-500/50' };

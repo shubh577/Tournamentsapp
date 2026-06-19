@@ -128,7 +128,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   // Dynamically change names based on role (Fans see "Tournaments", Organizers see "My Tournaments")
   const getNavItems = (role: string) => [
     { name: 'Overview', href: '/dashboard/overview', icon: LayoutDashboard, roles: ['organizer'] },
-    { name: 'Live Pulse', href: '/dashboard/pulse', icon: Activity, roles: ['organizer', 'coach', 'player', 'fan'] },
+    { name: 'Live Scoring', href: '/dashboard/pulse', icon: Activity, roles: ['organizer', 'coach', 'player', 'fan'] },
     { name: role === 'fan' ? 'Tournaments' : 'My Tournaments', href: '/dashboard/tournaments', icon: Trophy, roles: ['organizer', 'coach', 'player', 'fan'] },
     { name: role === 'fan' ? 'Teams' : 'My Teams', href: '/dashboard/teams', icon: Users, roles: ['coach', 'player', 'fan'] },
     { name: 'Community Hub', href: '/dashboard/community', icon: Globe, roles: ['organizer', 'coach', 'player', 'fan'] },

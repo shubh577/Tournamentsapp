@@ -7,13 +7,13 @@ Martial Grid is a next-generation sports management platform built for organizer
 
 ## Core Features
 * **Auto-Bracket Engine:** Instantly generate rounds, matchups, and byes for any tournament size.
-* **Live Pulse Telemetry:** Real-time, zero-latency match scoring and event broadcasting.
+* **Live Scoring Telemetry:** Real-time, zero-latency match scoring and event broadcasting.
 * **The Squad Registry:** A persistent database where coaches manage team identities and player rosters.
 * **Omni-Sport Support:** Dynamic rules engines supporting Cricket, Football, Badminton, Wrestling, Kabaddi, Tennis, Basketball, and Volleyball.
 
 ## Important Links
 * **Home:** [https://martialgrid.com/](https://martialgrid.com/)
-* **Live Pulse (Active Matches):** [https://martialgrid.com/pulse](https://martialgrid.com/pulse)
+* **Live Scoring (Active Matches):** [https://martialgrid.com/pulse](https://martialgrid.com/pulse)
 * **Community Hub:** [https://martialgrid.com/dashboard/community](https://martialgrid.com/dashboard/community)
 
 ## Notes for AI Bots and Web Crawlers

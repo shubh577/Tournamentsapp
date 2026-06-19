@@ -208,7 +208,7 @@ export default function LandingPage() {
                     <div className="w-12 h-12 rounded-xl bg-red-50 flex items-center justify-center mb-6 border border-red-100">
                       <Activity className="w-6 h-6 text-red-500" />
                     </div>
-                    <h3 className="text-2xl font-bold mb-3 text-slate-900">Live Pulse</h3>
+                    <h3 className="text-2xl font-bold mb-3 text-slate-900">Live Scoring</h3>
                     <p className="text-slate-600">Real-time match telemetry. Broadcast scores live to thousands of fans without refreshing.</p>
                 </div>
               </motion.div>

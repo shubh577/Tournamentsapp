@@ -79,7 +79,7 @@ export default function PulseDashboard() {
       {/* Header */}
       <div className="border-b border-white/10 pb-6">
         <h1 className="text-4xl md:text-5xl font-headline font-extrabold text-foreground tracking-tight flex items-center gap-3">
-            LIVE PULSE <Signal className="w-8 h-8 text-red-500 animate-pulse" />
+            LIVE SCORING <Signal className="w-8 h-8 text-red-500 animate-pulse" />
         </h1>
         <p className="text-lg text-muted-foreground mt-2">Real-time match telemetry and active arena monitoring.</p>
       </div>

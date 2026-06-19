@@ -7,9 +7,9 @@ import DashboardLayout from '@/app/dashboard/layout';
 import GlassCard from '@/components/glass/GlassCard';
 import { Button } from '@/components/ui/button';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { MapPin, Loader2, Calendar, Users, Share2, Trophy, Clock, CheckCircle2, ShieldCheck, Check } from 'lucide-react';
+import { MapPin, Loader2, Calendar, Users, Share2, Trophy, Clock, CheckCircle2, ShieldCheck, Check, Layers } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { useToast } from '@/hooks/use-toast'; // Importing your toast hook
+import { useToast } from '@/hooks/use-toast';
 
 const PublicTournamentPage = () => {
     const params = useParams();
@@ -22,7 +22,7 @@ const PublicTournamentPage = () => {
     const [countdown, setCountdown] = useState({ days: 0, hours: 0, minutes: 0 });
     const [hasApplied, setHasApplied] = useState(false);
     const [currentUser, setCurrentUser] = useState<any>(null);
-    const [isCopied, setIsCopied] = useState(false); // New state for Share button feedback
+    const [isCopied, setIsCopied] = useState(false);
 
     useEffect(() => {
         const fetchDetails = async () => {
@@ -93,11 +93,9 @@ const PublicTournamentPage = () => {
         return () => clearInterval(interval);
     }, [tournament]);
 
-    // --- ALIVE SHARE BUTTON LOGIC ---
     const handleShare = async () => {
         const url = window.location.href;
         
-        // 1. Try Native Web Share API (mostly mobile devices)
         if (navigator.share) {
             try {
                 await navigator.share({
@@ -105,13 +103,12 @@ const PublicTournamentPage = () => {
                     text: `Check out ${tournament?.name} on our platform!`,
                     url: url,
                 });
-                return; // Exit if successfully shared natively
+                return;
             } catch (error) {
                 console.log('Native share failed or aborted, falling back to copy.', error);
             }
         } 
         
-        // 2. Fallback to Clipboard (Desktop)
         try {
             await navigator.clipboard.writeText(url);
             setIsCopied(true);
@@ -120,7 +117,6 @@ const PublicTournamentPage = () => {
                 description: "Tournament URL saved to clipboard.",
             });
             
-            // Revert icon back to share after 2 seconds
             setTimeout(() => {
                 setIsCopied(false);
             }, 2000);
@@ -140,6 +136,8 @@ const PublicTournamentPage = () => {
                 description: "Please log in to apply for this tournament.",
                 variant: "destructive"
             });
+            // Optional: Redirect them to login
+            // window.location.href = '/login'
             return;
         }
         
@@ -168,18 +166,21 @@ const PublicTournamentPage = () => {
 
     const isAnnouncement = tournament.registration_mode === 'announcement';
     const isOpen = tournament.registration_mode === 'open';
+    const maxTeamsDisplay = tournament.max_teams > 0 ? tournament.max_teams : '∞';
+
+    // Extract dynamic categories safely
+    const categories = tournament.rules?.registration_categories || [];
 
     return (
         <DashboardLayout>
             {/* HERO BANNER SECTION */}
-            <div className="relative w-full h-[400px] border-b border-white/10 overflow-hidden bg-black">
+            <div className="relative w-full h-[400px] border-b border-white/10 overflow-hidden bg-black rounded-b-3xl">
                 {tournament.banner_url ? (
                     <img src={tournament.banner_url} alt="Banner" className="w-full h-full object-cover opacity-60" />
                 ) : (
                     <div className="w-full h-full bg-gradient-to-tr from-primary/20 to-background" />
                 )}
                 
-                {/* Gradient Overlay for Text Readability */}
                 <div className="absolute inset-0 bg-gradient-to-t from-background via-background/80 to-transparent" />
 
                 <div className="absolute bottom-0 left-0 w-full p-6 sm:p-10 max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-end gap-6">
@@ -190,7 +191,7 @@ const PublicTournamentPage = () => {
                         </div>
                         <h1 className="text-4xl sm:text-6xl font-extrabold font-headline leading-tight">{tournament.name}</h1>
                         <p className="text-lg text-muted-foreground mt-2 flex items-center gap-2">
-                            Organized by <Avatar className="w-6 h-6"><AvatarImage src={tournament.profiles?.avatar_url}/><AvatarFallback>O</AvatarFallback></Avatar> <span className="text-foreground font-semibold">{tournament.profiles?.name}</span>
+                            Organized by <Avatar className="w-6 h-6"><AvatarImage src={tournament.profiles?.avatar_url}/><AvatarFallback className="bg-primary/20 text-primary">O</AvatarFallback></Avatar> <span className="text-foreground font-semibold">{tournament.profiles?.name}</span>
                         </p>
                     </div>
                     
@@ -224,7 +225,7 @@ const PublicTournamentPage = () => {
                 <div className="lg:col-span-2 space-y-8">
                     
                     {/* COUNTDOWN WIDGET */}
-                    <GlassCard className="p-8 border-primary/30 relative overflow-hidden">
+                    <GlassCard className="p-8 border-primary/30 relative overflow-hidden shadow-[0_0_30px_rgba(var(--primary-rgb),0.05)]">
                         <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-full bg-primary/5 blur-[50px] pointer-events-none" />
                         <h3 className="text-center text-muted-foreground font-semibold mb-4 uppercase tracking-widest flex items-center justify-center gap-2">
                             <Clock className="w-4 h-4 text-primary" /> 
@@ -243,20 +244,42 @@ const PublicTournamentPage = () => {
                         <GlassCard className="p-4 text-center"><MapPin className="w-6 h-6 mx-auto mb-2 text-primary"/><p className="text-xs text-muted-foreground">Location</p><p className="font-bold">{tournament.location}</p></GlassCard>
                         <GlassCard className="p-4 text-center"><Calendar className="w-6 h-6 mx-auto mb-2 text-primary"/><p className="text-xs text-muted-foreground">Dates</p><p className="font-bold">{new Date(tournament.start_date).toLocaleDateString()}</p></GlassCard>
                         <GlassCard className="p-4 text-center"><Users className="w-6 h-6 mx-auto mb-2 text-primary"/><p className="text-xs text-muted-foreground">Format</p><p className="font-bold capitalize">{tournament.format}</p></GlassCard>
-                        <GlassCard className="p-4 text-center"><ShieldCheck className="w-6 h-6 mx-auto mb-2 text-primary"/><p className="text-xs text-muted-foreground">Max Teams</p><p className="font-bold">{tournament.max_teams}</p></GlassCard>
+                        <GlassCard className="p-4 text-center"><ShieldCheck className="w-6 h-6 mx-auto mb-2 text-primary"/><p className="text-xs text-muted-foreground">Max Teams</p><p className="font-bold">{maxTeamsDisplay}</p></GlassCard>
                     </div>
 
                     <GlassCard className="p-8">
                         <h2 className="text-2xl font-bold mb-4">About & Rules</h2>
-                        <p className="text-muted-foreground leading-relaxed whitespace-pre-wrap">{tournament.additional_rules || "No additional rules provided."}</p>
+                        <p className="text-muted-foreground leading-relaxed whitespace-pre-wrap mb-8">{tournament.additional_rules || "No additional rules provided."}</p>
                         
+                        {/* REGISTRATION CATEGORIES RENDERER */}
+                        {categories.length > 0 && (
+                            <div className="mb-8 p-6 bg-black/20 rounded-xl border border-white/5">
+                                <h3 className="font-bold flex items-center gap-2 mb-4"><Layers className="w-5 h-5 text-primary"/> Official Registration Categories</h3>
+                                <div className="space-y-4">
+                                    {categories.map((cat: any) => (
+                                        <div key={cat.id}>
+                                            <p className="text-xs uppercase tracking-widest text-muted-foreground mb-2 font-bold">{cat.name}</p>
+                                            <div className="flex flex-wrap gap-2">
+                                                {cat.options.map((opt: string, i: number) => (
+                                                    <span key={i} className="px-3 py-1 bg-white/10 border border-white/10 rounded-full text-sm font-medium">
+                                                        {opt}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+
+                        {/* OTHER DEEP CONFIG RULES */}
                         {Object.keys(tournament.rules || {}).length > 0 && (
-                            <div className="mt-6 grid grid-cols-2 gap-4">
+                            <div className="grid grid-cols-2 gap-4">
                                 {Object.entries(tournament.rules).map(([key, val]) => {
-                                    if(key === 'invited_coaches') return null;
+                                    if(key === 'invited_coaches' || key === 'registration_categories') return null;
                                     return (
                                         <div key={key} className="p-3 bg-white/5 rounded-lg border border-white/10">
-                                            <p className="text-xs text-muted-foreground capitalize">{key.replace('_', ' ')}</p>
+                                            <p className="text-xs text-muted-foreground capitalize">{key.replace(/_/g, ' ')}</p>
                                             <p className="font-bold">{String(val)}</p>
                                         </div>
                                     )
@@ -269,26 +292,26 @@ const PublicTournamentPage = () => {
                 {/* RIGHT COLUMN - Prizing & Teams */}
                 <div className="space-y-8">
                     
-                    <GlassCard className="p-6 border-green-500/30">
+                    <GlassCard className="p-6 border-green-500/30 shadow-[0_0_30px_rgba(34,197,94,0.05)]">
                         <div className="flex items-center gap-3 mb-6">
                             <div className="p-3 bg-green-500/20 rounded-full"><Trophy className="w-6 h-6 text-green-400" /></div>
                             <div>
                                 <p className="text-sm text-muted-foreground font-semibold">Total Prize Pool</p>
-                                <p className="text-3xl font-black text-green-400">{tournament.currency} {tournament.prize_pool}</p>
+                                <p className="text-3xl font-black text-green-400">{tournament.prize_pool ? `${tournament.currency} ${tournament.prize_pool}` : 'TBA'}</p>
                             </div>
                         </div>
                         
                         <div className="space-y-3">
-                            {tournament.prizes?.first && <div className="flex justify-between p-3 bg-white/5 rounded-lg"><span className="font-semibold text-yellow-500">1st Place</span><span className="font-bold">{tournament.prizes.first}</span></div>}
-                            {tournament.prizes?.second && <div className="flex justify-between p-3 bg-white/5 rounded-lg"><span className="font-semibold text-gray-400">2nd Place</span><span className="font-bold">{tournament.prizes.second}</span></div>}
-                            {tournament.prizes?.mvp && <div className="flex justify-between p-3 bg-white/5 rounded-lg"><span className="font-semibold text-primary">MVP</span><span className="font-bold">{tournament.prizes.mvp}</span></div>}
+                            {tournament.prizes?.first && <div className="flex justify-between p-3 bg-white/5 rounded-lg"><span className="font-semibold text-yellow-500">1st Place</span><span className="font-bold text-right ml-4">{tournament.prizes.first}</span></div>}
+                            {tournament.prizes?.second && <div className="flex justify-between p-3 bg-white/5 rounded-lg"><span className="font-semibold text-gray-400">2nd Place</span><span className="font-bold text-right ml-4">{tournament.prizes.second}</span></div>}
+                            {tournament.prizes?.mvp && <div className="flex justify-between p-3 bg-white/5 rounded-lg"><span className="font-semibold text-primary">MVP</span><span className="font-bold text-right ml-4">{tournament.prizes.mvp}</span></div>}
                         </div>
                     </GlassCard>
 
                     <GlassCard className="p-6">
                         <div className="flex justify-between items-end mb-6">
                             <h2 className="text-xl font-bold">Confirmed Teams</h2>
-                            <span className="text-sm font-bold text-primary">{teams.length} / {tournament.max_teams}</span>
+                            <span className="text-sm font-bold text-primary">{teams.length} / {maxTeamsDisplay}</span>
                         </div>
                         
                         {teams.length === 0 ? (

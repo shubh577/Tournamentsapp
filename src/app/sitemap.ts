@@ -9,7 +9,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { url: `${baseUrl}`, lastModified: new Date(), changeFrequency: 'weekly', priority: 1.0 },
     { url: `${baseUrl}/onboarding`, lastModified: new Date(), changeFrequency: 'yearly', priority: 0.8 },
     { url: `${baseUrl}/community`, lastModified: new Date(), changeFrequency: 'daily', priority: 0.9 }, // Assuming community is public
-    { url: `${baseUrl}/pulse`, lastModified: new Date(), changeFrequency: 'always', priority: 0.9 }, // Live pulse is always changing
+    { url: `${baseUrl}/pulse`, lastModified: new Date(), changeFrequency: 'always', priority: 0.9 }, // Live scoring is always changing
   ] as MetadataRoute.Sitemap;
 
   // 2. Dynamic Tournament Routes

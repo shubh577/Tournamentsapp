@@ -11,7 +11,8 @@ import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Trophy, Upload, Calendar, MapPin, IndianRupee, DollarSign, Euro, PoundSterling, Loader2, Info, ChevronRight, ChevronLeft, Settings, AlertCircle, CheckCircle2 } from 'lucide-react';
+import { Label } from '@/components/ui/label';
+import { Trophy, Upload, Calendar, MapPin, IndianRupee, DollarSign, Euro, PoundSterling, Loader2, Info, ChevronRight, ChevronLeft, Settings, AlertCircle, CheckCircle2, Plus, X, Trash2 } from 'lucide-react';
 
 const steps = [
     { id: 1, name: 'Identity', icon: Trophy },
@@ -23,7 +24,7 @@ const steps = [
 ];
 
 const SPORTS = ['Cricket', 'Football', 'Badminton', 'Wrestling', 'Kabaddi', 'Karate', 'Judo', 'Tennis', 'Basketball', 'Volleyball'];
-const LEVELS = ['Wooden', 'Bronze', 'Silver', 'Gold', 'Elite'];
+const LEVELS = ['Zonal', 'District', 'State', 'National', 'International'];
 const FORMATS = ['Knockout', 'League', 'Group Stage + Knockout'];
 const CURRENCIES = [
     { label: 'INR (₹)', value: 'INR', icon: IndianRupee },
@@ -32,7 +33,7 @@ const CURRENCIES = [
     { label: 'GBP (£)', value: 'GBP', icon: PoundSterling },
 ];
 
-const CreateTournamentPage = () => {
+export default function CreateTournamentPage() {
     const router = useRouter();
     const [currentStep, setCurrentStep] = useState(0);
     const [loading, setLoading] = useState(false);
@@ -43,13 +44,18 @@ const CreateTournamentPage = () => {
     const [fetchingCoaches, setFetchingCoaches] = useState(false);
     const [invitedCoaches, setInvitedCoaches] = useState<string[]>([]);
     
+    // Dynamic Category Builder Input States
+    const [categoryInputVals, setCategoryInputVals] = useState<Record<string, string>>({});
+
     const [formData, setFormData] = useState({
         name: '', sport: '', level: '', banner_url: '',
-        location: '', start_date: '', end_date: '', format: '', max_teams: 8, // Default 8, but infinite
+        location: '', start_date: '', end_date: '', format: '', max_teams: 8, 
         registration_mode: '', registration_deadline: '', contact_email: '',
         currency: 'INR', entry_fee: '', prize_pool: '',
         prizes: { first: '', second: '', mvp: '' },
-        rules: {} as any, additional_rules: ''
+        rules: {} as any, additional_rules: '',
+        // New Dynamic Categories Array
+        custom_categories: [] as Array<{ id: string, name: string, options: string[] }>
     });
 
     // Fetch coaches dynamically when a sport is selected
@@ -89,23 +95,73 @@ const CreateTournamentPage = () => {
         );
     };
 
+    // --- DYNAMIC CATEGORY BUILDER LOGIC ---
+    const handleAddCategory = () => {
+        const newId = Math.random().toString(36).substring(7);
+        setFormData(prev => ({
+            ...prev,
+            custom_categories: [...prev.custom_categories, { id: newId, name: '', options: [] }]
+        }));
+    };
+
+    const handleCategoryNameChange = (id: string, name: string) => {
+        setFormData(prev => ({
+            ...prev,
+            custom_categories: prev.custom_categories.map(c => c.id === id ? { ...c, name } : c)
+        }));
+    };
+
+    const handleRemoveCategory = (id: string) => {
+        setFormData(prev => ({
+            ...prev,
+            custom_categories: prev.custom_categories.filter(c => c.id !== id)
+        }));
+        setCategoryInputVals(prev => {
+            const next = { ...prev };
+            delete next[id];
+            return next;
+        });
+    };
+
+    const handleAddCategoryOption = (id: string) => {
+        const val = categoryInputVals[id]?.trim();
+        if (!val) return;
+
+        setFormData(prev => ({
+            ...prev,
+            custom_categories: prev.custom_categories.map(c => 
+                c.id === id ? { ...c, options: [...c.options, val] } : c
+            )
+        }));
+        
+        // Clear the input
+        setCategoryInputVals(prev => ({ ...prev, [id]: '' }));
+    };
+
+    const handleRemoveCategoryOption = (id: string, optIndex: number) => {
+        setFormData(prev => ({
+            ...prev,
+            custom_categories: prev.custom_categories.map(c => 
+                c.id === id ? { ...c, options: c.options.filter((_, idx) => idx !== optIndex) } : c
+            )
+        }));
+    };
+
     // --- DATA SANITIZATION & VALIDATION ENGINE ---
     const isStepValid = () => {
         switch (currentStep) {
             case 0: return formData.name.trim() !== '' && formData.sport !== '' && formData.level !== '';
             case 1: 
-                if (!formData.location || !formData.start_date || !formData.end_date || !formData.format || !formData.max_teams) return false;
+                if (!formData.location || !formData.start_date || !formData.end_date || !formData.format || formData.max_teams === null) return false;
                 if (new Date(formData.end_date) < new Date(formData.start_date)) return false;
                 return true;
             case 2: 
                 if (!formData.registration_mode) return false;
                 if (['open', 'invite'].includes(formData.registration_mode) && !formData.registration_deadline) return false;
                 if (formData.registration_deadline && new Date(formData.registration_deadline) > new Date(formData.start_date)) return false;
-                // Ensure organizer doesn't over-invite
-                if (formData.registration_mode === 'invite' && invitedCoaches.length > formData.max_teams) return false;
+                if (formData.registration_mode === 'invite' && formData.max_teams > 0 && invitedCoaches.length > formData.max_teams) return false;
                 return true;
             case 3: 
-                // Prize Pool is now optional, but Entry Fee is required
                 return formData.entry_fee !== '';
             case 4: return true; 
             default: return true;
@@ -119,7 +175,7 @@ const CreateTournamentPage = () => {
         if (currentStep === 2 && formData.registration_deadline && formData.start_date && new Date(formData.registration_deadline) > new Date(formData.start_date)) {
             return "Registration deadline must be before the tournament starts.";
         }
-        if (currentStep === 2 && formData.registration_mode === 'invite' && invitedCoaches.length > formData.max_teams) {
+        if (currentStep === 2 && formData.registration_mode === 'invite' && formData.max_teams > 0 && invitedCoaches.length > formData.max_teams) {
             return `You cannot invite more coaches (${invitedCoaches.length}) than the max team limit (${formData.max_teams}).`;
         }
         return "Please fill in all required fields to continue.";
@@ -160,9 +216,12 @@ const CreateTournamentPage = () => {
             return;
         }
 
-        const finalRules = { ...formData.rules };
+        // Package the dynamic categories inside the JSON rules column so coaches can fetch them later
+        const finalRules = { 
+            ...formData.rules,
+            registration_categories: formData.custom_categories 
+        };
 
-        // 1. CREATE TOURNAMENT
         const { data: tournament, error } = await supabase.from('tournaments').insert({
             organizer_id: user.id,
             name: formData.name, 
@@ -179,7 +238,7 @@ const CreateTournamentPage = () => {
             contact_email: formData.contact_email,
             currency: formData.currency, 
             entry_fee: parseFloat(formData.entry_fee) || 0, 
-            prize_pool: parseFloat(formData.prize_pool) || 0, // Fallback to 0 if left blank
+            prize_pool: parseFloat(formData.prize_pool) || 0, 
             prizes: formData.prizes, 
             rules: finalRules, 
             additional_rules: formData.additional_rules
@@ -192,7 +251,6 @@ const CreateTournamentPage = () => {
             return;
         }
 
-        // 2. THE INVITATION ENGINE
         if (formData.registration_mode === 'invite' && invitedCoaches.length > 0) {
             const inviteRecords = invitedCoaches.map(coachId => ({
                 tournament_id: tournament.id,
@@ -201,38 +259,20 @@ const CreateTournamentPage = () => {
                 status: 'pending'
             }));
 
-            const { data: insertedInvites, error: inviteError } = await supabase
-                .from('tournament_invitations')
-                .insert(inviteRecords)
-                .select();
-
-            if (inviteError) {
-                console.error("Failed to insert tracking invites:", inviteError);
-            }
+            const { data: insertedInvites, error: inviteError } = await supabase.from('tournament_invitations').insert(inviteRecords).select();
 
             if (insertedInvites && insertedInvites.length > 0) {
                 const notificationRecords = insertedInvites.map(invite => ({
                     user_id: invite.coach_id,
                     type: 'tournament_invite',
                     message: `You have been invited to participate in ${tournament.name}!`,
-                    metadata: { 
-                        tournament_invite_id: invite.id, 
-                        tournament_name: tournament.name,
-                        organizer_id: user.id
-                    }
+                    metadata: { tournament_invite_id: invite.id, tournament_name: tournament.name, organizer_id: user.id }
                 }));
-                
-                const { error: notifError } = await supabase.from('notifications').insert(notificationRecords);
-                
-                if (notifError) {
-                    console.error("Notification Error:", notifError);
-                }
+                await supabase.from('notifications').insert(notificationRecords);
             }
         }
 
         setLoading(false);
-        
-        // 3. Routing Logic
         if (formData.registration_mode === 'final') {
             router.push(`/tournament/${tournament.id}/brackets`);
         } else {
@@ -281,18 +321,11 @@ const CreateTournamentPage = () => {
                 <div className="space-y-4 grid grid-cols-1 md:grid-cols-2 gap-4">
                     <Select onValueChange={v => handleNestedChange('rules', 'match_format', v)}>
                         <SelectTrigger><SelectValue placeholder="Match Format" /></SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="Singles">Singles Only</SelectItem>
-                            <SelectItem value="Doubles">Doubles Only</SelectItem>
-                            <SelectItem value="Team Event">Team Event</SelectItem>
-                        </SelectContent>
+                        <SelectContent><SelectItem value="Singles">Singles Only</SelectItem><SelectItem value="Doubles">Doubles Only</SelectItem><SelectItem value="Team Event">Team Event</SelectItem></SelectContent>
                     </Select>
                     <Select onValueChange={v => handleNestedChange('rules', 'shuttle_type', v)}>
                         <SelectTrigger><SelectValue placeholder="Shuttle Type" /></SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="Feather">Feather (Professional)</SelectItem>
-                            <SelectItem value="Nylon">Nylon (Synthetic)</SelectItem>
-                        </SelectContent>
+                        <SelectContent><SelectItem value="Feather">Feather (Professional)</SelectItem><SelectItem value="Nylon">Nylon (Synthetic)</SelectItem></SelectContent>
                     </Select>
                     <Input type="number" placeholder="Points per Game (e.g. 21)" onChange={e => handleNestedChange('rules', 'points', e.target.value)} />
                     <Input type="number" placeholder="Best of (e.g. 3 Sets)" onChange={e => handleNestedChange('rules', 'best_of', e.target.value)} />
@@ -309,7 +342,6 @@ const CreateTournamentPage = () => {
                             <SelectItem value="Greco-Roman">Greco-Roman</SelectItem>
                         </SelectContent>
                     </Select>
-                    <Input placeholder="Weight Classes Permitted (e.g. 57kg, 65kg, 74kg)" onChange={e => handleNestedChange('rules', 'weight_classes', e.target.value)} />
                     <Input type="number" placeholder="Period Duration (Mins)" onChange={e => handleNestedChange('rules', 'period_duration', e.target.value)} />
                     <Input type="number" placeholder="Number of Periods (e.g. 2)" onChange={e => handleNestedChange('rules', 'periods', e.target.value)} />
                 </div>
@@ -323,14 +355,6 @@ const CreateTournamentPage = () => {
                         <SelectContent>
                             <SelectItem value="Standard">Standard Style</SelectItem>
                             <SelectItem value="Circle">Circle Style</SelectItem>
-                        </SelectContent>
-                    </Select>
-                    <Select onValueChange={v => handleNestedChange('rules', 'weight_category', v)}>
-                        <SelectTrigger><SelectValue placeholder="Weight Category" /></SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="Open">Open Weight</SelectItem>
-                            <SelectItem value="Under 80kg">Under 80kg</SelectItem>
-                            <SelectItem value="Under 65kg">Under 65kg</SelectItem>
                         </SelectContent>
                     </Select>
                     <Input type="number" placeholder="Half Duration (Mins)" onChange={e => handleNestedChange('rules', 'half_duration', e.target.value)} />
@@ -368,7 +392,6 @@ const CreateTournamentPage = () => {
                         </SelectContent>
                     </Select>
                     <Input type="number" placeholder="Match Duration (Mins)" onChange={e => handleNestedChange('rules', 'match_duration', e.target.value)} />
-                    <Input className="col-span-full" placeholder="Allowed Weight Categories (e.g., -60kg, -67kg, +84kg)" onChange={e => handleNestedChange('rules', 'categories', e.target.value)} />
                 </div>
             );
         }
@@ -384,7 +407,6 @@ const CreateTournamentPage = () => {
                         </SelectContent>
                     </Select>
                     <Input type="number" placeholder="Standard Match Time (Mins)" onChange={e => handleNestedChange('rules', 'match_duration', e.target.value)} />
-                    <Input placeholder="Weight Categories (e.g., -60kg, -66kg)" onChange={e => handleNestedChange('rules', 'weight_categories', e.target.value)} />
                     <Select onValueChange={v => handleNestedChange('rules', 'allowed_grades', v)}>
                         <SelectTrigger><SelectValue placeholder="Allowed Grades" /></SelectTrigger>
                         <SelectContent>
@@ -401,33 +423,19 @@ const CreateTournamentPage = () => {
                 <div className="space-y-4 grid grid-cols-1 md:grid-cols-2 gap-4">
                     <Select onValueChange={v => handleNestedChange('rules', 'surface', v)}>
                         <SelectTrigger><SelectValue placeholder="Court Surface" /></SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="Hard">Hard Court</SelectItem>
-                            <SelectItem value="Clay">Clay Court</SelectItem>
-                            <SelectItem value="Grass">Grass Court</SelectItem>
-                        </SelectContent>
+                        <SelectContent><SelectItem value="Hard">Hard Court</SelectItem><SelectItem value="Clay">Clay Court</SelectItem><SelectItem value="Grass">Grass Court</SelectItem></SelectContent>
                     </Select>
                     <Select onValueChange={v => handleNestedChange('rules', 'format', v)}>
                         <SelectTrigger><SelectValue placeholder="Match Format" /></SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="Best of 3">Best of 3 Sets</SelectItem>
-                            <SelectItem value="Best of 5">Best of 5 Sets</SelectItem>
-                            <SelectItem value="Pro Set">Pro Set (8 Games)</SelectItem>
-                        </SelectContent>
+                        <SelectContent><SelectItem value="Best of 3">Best of 3 Sets</SelectItem><SelectItem value="Best of 5">Best of 5 Sets</SelectItem><SelectItem value="Pro Set">Pro Set (8 Games)</SelectItem></SelectContent>
                     </Select>
                     <Select onValueChange={v => handleNestedChange('rules', 'tiebreak', v)}>
                         <SelectTrigger><SelectValue placeholder="Tiebreak Rules" /></SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="Standard">Standard (First to 7)</SelectItem>
-                            <SelectItem value="Super">Super Tiebreak (First to 10)</SelectItem>
-                        </SelectContent>
+                        <SelectContent><SelectItem value="Standard">Standard (First to 7)</SelectItem><SelectItem value="Super">Super Tiebreak (First to 10)</SelectItem></SelectContent>
                     </Select>
                     <Select onValueChange={v => handleNestedChange('rules', 'event_type', v)}>
                         <SelectTrigger><SelectValue placeholder="Event Type" /></SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="Singles">Singles</SelectItem>
-                            <SelectItem value="Doubles">Doubles</SelectItem>
-                        </SelectContent>
+                        <SelectContent><SelectItem value="Singles">Singles</SelectItem><SelectItem value="Doubles">Doubles</SelectItem></SelectContent>
                     </Select>
                 </div>
             );
@@ -437,10 +445,7 @@ const CreateTournamentPage = () => {
                 <div className="space-y-4 grid grid-cols-1 md:grid-cols-2 gap-4">
                     <Select onValueChange={v => handleNestedChange('rules', 'court_size', v)}>
                         <SelectTrigger><SelectValue placeholder="Court Type" /></SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="Full Court 5v5">Full Court (5v5)</SelectItem>
-                            <SelectItem value="Half Court 3v3">Half Court (3v3)</SelectItem>
-                        </SelectContent>
+                        <SelectContent><SelectItem value="Full Court 5v5">Full Court (5v5)</SelectItem><SelectItem value="Half Court 3v3">Half Court (3v3)</SelectItem></SelectContent>
                     </Select>
                     <Input type="number" placeholder="Quarter Duration (Mins)" onChange={e => handleNestedChange('rules', 'quarter_duration', e.target.value)} />
                     <Input type="number" placeholder="Overtime Duration (Mins)" onChange={e => handleNestedChange('rules', 'overtime_duration', e.target.value)} />
@@ -453,18 +458,11 @@ const CreateTournamentPage = () => {
                 <div className="space-y-4 grid grid-cols-1 md:grid-cols-2 gap-4">
                     <Select onValueChange={v => handleNestedChange('rules', 'format', v)}>
                         <SelectTrigger><SelectValue placeholder="Match Format" /></SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="Best of 3">Best of 3 Sets</SelectItem>
-                            <SelectItem value="Best of 5">Best of 5 Sets</SelectItem>
-                        </SelectContent>
+                        <SelectContent><SelectItem value="Best of 3">Best of 3 Sets</SelectItem><SelectItem value="Best of 5">Best of 5 Sets</SelectItem></SelectContent>
                     </Select>
                     <Select onValueChange={v => handleNestedChange('rules', 'court_type', v)}>
                         <SelectTrigger><SelectValue placeholder="Court Type" /></SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="Indoor">Indoor (Hardwood)</SelectItem>
-                            <SelectItem value="Beach">Beach (Sand)</SelectItem>
-                            <SelectItem value="Grass">Grass</SelectItem>
-                        </SelectContent>
+                        <SelectContent><SelectItem value="Indoor">Indoor (Hardwood)</SelectItem><SelectItem value="Beach">Beach (Sand)</SelectItem><SelectItem value="Grass">Grass</SelectItem></SelectContent>
                     </Select>
                     <Input type="number" placeholder="Points per Set (Standard)" onChange={e => handleNestedChange('rules', 'points_per_set', e.target.value)} />
                     <Input type="number" placeholder="Points for Deciding Set" onChange={e => handleNestedChange('rules', 'deciding_set_points', e.target.value)} />
@@ -546,11 +544,11 @@ const CreateTournamentPage = () => {
                                     <label className="text-sm font-semibold text-muted-foreground">Maximum Teams Allowed (Leave 0 for No Limit)</label>
                                     <Input 
                                         type="number" 
-                                        min="2" 
+                                        min="0" 
                                         placeholder="e.g. 16, 32, 100" 
                                         className="h-14 bg-white/5" 
-                                        value={formData.max_teams || ''} 
-                                        onChange={e => handleInputChange('max_teams', e.target.value ? parseInt(e.target.value, 10) : '')} 
+                                        value={formData.max_teams} 
+                                        onChange={e => handleInputChange('max_teams', e.target.value ? parseInt(e.target.value, 10) : 0)} 
                                     />
                                 </div>
                             </motion.div>
@@ -569,7 +567,6 @@ const CreateTournamentPage = () => {
                                     </SelectContent>
                                 </Select>
 
-                                {/* Dynamic Horizontal Coach Invite Slider */}
                                 {formData.registration_mode === 'invite' && (
                                     <motion.div initial={{opacity:0, y:10}} animate={{opacity:1, y:0}} className="p-5 bg-white/5 rounded-xl border border-white/10 space-y-4">
                                         <div>
@@ -657,11 +654,87 @@ const CreateTournamentPage = () => {
                         {currentStep === 4 && (
                             <motion.div key="step4" initial={{opacity:0, x:20}} animate={{opacity:1, x:0}} exit={{opacity:0, x:-20}} className="space-y-6">
                                 <h2 className="text-2xl font-bold border-b border-white/10 pb-4 mb-6">Rules & Deep Config</h2>
+                                
                                 {renderSportRules()}
-                                <div className="mt-6 space-y-2">
+
+                                {/* --- NEW DYNAMIC CATEGORY BUILDER --- */}
+                                <div className="mt-12 space-y-4 bg-black/20 p-6 rounded-2xl border border-white/5">
+                                    <div className="flex items-center justify-between border-b border-white/10 pb-4">
+                                        <div>
+                                            <h3 className="text-xl font-bold">Registration Categories</h3>
+                                            <p className="text-xs text-muted-foreground mt-1">Create multiple groups for coaches to register their players under (e.g., Weight Classes, Age, Gender).</p>
+                                        </div>
+                                        <Button variant="outline" size="sm" onClick={handleAddCategory} className="bg-white/5 hover:bg-white/10 shrink-0">
+                                            <Plus className="w-4 h-4 mr-2" /> Add Category
+                                        </Button>
+                                    </div>
+
+                                    {formData.custom_categories.map((cat) => (
+                                        <div key={cat.id} className="p-5 bg-white/5 border border-white/10 rounded-xl space-y-4 relative group">
+                                            <div className="flex flex-col sm:flex-row gap-4 items-start">
+                                                <div className="flex-1 space-y-2 w-full">
+                                                    <Label className="text-muted-foreground">Category Name</Label>
+                                                    <Input 
+                                                        placeholder="e.g., Weight Class, Gender, Belt" 
+                                                        value={cat.name} 
+                                                        onChange={e => handleCategoryNameChange(cat.id, e.target.value)} 
+                                                        className="bg-black/40 border-white/10 h-12 font-bold" 
+                                                    />
+                                                </div>
+                                                <Button 
+                                                    variant="ghost" 
+                                                    size="icon" 
+                                                    onClick={() => handleRemoveCategory(cat.id)} 
+                                                    className="mt-8 text-red-400 hover:text-red-300 hover:bg-red-500/10 shrink-0"
+                                                >
+                                                    <Trash2 className="w-4 h-4" />
+                                                </Button>
+                                            </div>
+
+                                            <div className="space-y-2">
+                                                <Label className="text-muted-foreground">Add Sub-Categories / Options</Label>
+                                                <div className="flex gap-2">
+                                                    <Input
+                                                        placeholder="e.g., -61kg, +55kg, Male, U18..."
+                                                        value={categoryInputVals[cat.id] || ''}
+                                                        onChange={e => setCategoryInputVals(prev => ({...prev, [cat.id]: e.target.value}))}
+                                                        onKeyDown={e => {
+                                                            if (e.key === 'Enter') {
+                                                                e.preventDefault();
+                                                                handleAddCategoryOption(cat.id);
+                                                            }
+                                                        }}
+                                                        className="bg-black/40 border-white/10"
+                                                    />
+                                                    <Button variant="secondary" onClick={() => handleAddCategoryOption(cat.id)} className="shrink-0 bg-primary/20 text-primary hover:bg-primary/30">
+                                                        <Plus className="w-5 h-5" />
+                                                    </Button>
+                                                </div>
+                                                
+                                                {cat.options.length > 0 && (
+                                                    <div className="flex flex-wrap gap-2 mt-4 pt-2">
+                                                        {cat.options.map((opt, optIdx) => (
+                                                            <span key={optIdx} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-white/10 border border-white/20 text-sm font-medium">
+                                                                {opt}
+                                                                <X className="w-3 h-3 cursor-pointer text-muted-foreground hover:text-red-400 transition-colors" onClick={() => handleRemoveCategoryOption(cat.id, optIdx)} />
+                                                            </span>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ))}
+                                    {formData.custom_categories.length === 0 && (
+                                        <div className="text-center py-8 text-muted-foreground text-sm italic">
+                                            No custom categories added. (Players will register in one single open group).
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="mt-8 space-y-2 border-t border-white/10 pt-8">
                                     <label className="text-sm font-semibold text-muted-foreground">Additional Rules & Notes</label>
                                     <Textarea 
-                                        placeholder="Any specific instructions, age limits, or behavior guidelines for participants..." 
+                                        placeholder="Any specific instructions, dress codes, or behavior guidelines for participants..." 
                                         className="min-h-[120px] bg-white/5"
                                         value={formData.additional_rules}
                                         onChange={e => handleInputChange('additional_rules', e.target.value)}
@@ -712,6 +785,4 @@ const CreateTournamentPage = () => {
             </div>
         </DashboardLayout>
     );
-};
-
-export default CreateTournamentPage;
+}
