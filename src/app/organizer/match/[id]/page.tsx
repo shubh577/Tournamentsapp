@@ -8,7 +8,7 @@ import GlassCard from '@/components/glass/GlassCard';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Loader2, ChevronLeft, Activity, Trophy, AlertCircle, Clock, Zap, Flag, History, Play, Pause, RotateCcw, Pencil, Save, Lock, AlertTriangle } from 'lucide-react';
+import { Loader2, ChevronLeft, Activity, Trophy, AlertCircle, Clock, Zap, Flag, History, Play, Pause, RotateCcw, Pencil, Save, Lock, Copy, Check, Radio, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const INDIVIDUAL_SPORTS = ['tennis', 'badminton', 'karate', 'judo', 'wrestling'];
@@ -258,6 +258,33 @@ const MatchScoringPage = () => {
         }
     };
 
+    // --- LIVE BROADCAST & SHARING CONTROLS ---
+    const [copied, setCopied] = useState(false);
+
+    const toggleLiveStatus = async () => {
+        if (!isOrganizer) return;
+        
+        // If it's currently live, toggle back to scheduled. Otherwise, go live!
+        const newStatus = match.status === 'live' ? 'scheduled' : 'live'; 
+        
+        setIsUpdating(true);
+        const { error } = await supabase.from('matches').update({ status: newStatus }).eq('id', matchId);
+        setIsUpdating(false);
+
+        if (!error) {
+            setMatch((prev: any) => ({...prev, status: newStatus}));
+        } else {
+            alert("Failed to update broadcast status.");
+        }
+    };
+
+    const copyLiveLink = () => {
+        const url = `${window.location.origin}/live/${matchId}`;
+        navigator.clipboard.writeText(url);
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2000); // Reset icon after 2 seconds
+    };
+
     const handleCompleteMatch = async (autoFinalize = false) => {
         if (!isOrganizer) return;
         if (!autoFinalize) {
@@ -497,7 +524,7 @@ const MatchScoringPage = () => {
             <div className="max-w-7xl mx-auto p-4 sm:p-8">
                 
                 {/* Header */}
-                <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
+                <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-8 gap-6">
                     <div>
                         <Button variant="ghost" onClick={() => {
                             if (tournament?.id) {
@@ -518,18 +545,47 @@ const MatchScoringPage = () => {
                         </h1>
                     </div>
                     
-                    {isOrganizer && (
+                    {/* Control Buttons Group */}
+                    <div className="flex flex-wrap items-center gap-3 w-full lg:w-auto">
+                        
+                        {/* Copy Public Link Button */}
                         <Button 
-                            size="lg" 
-                            variant={match.status === 'completed' ? 'secondary' : 'default'}
-                            onClick={() => handleCompleteMatch(false)} 
-                            disabled={isUpdating || match.status === 'completed'}
-                            className={match.status === 'completed' ? '' : 'bg-red-500 hover:bg-red-600 text-white shadow-[0_0_20px_rgba(239,68,68,0.4)]'}
+                            variant="outline" 
+                            onClick={copyLiveLink} 
+                            className="bg-white/5 border-white/10 hover:bg-white/10 flex-1 lg:flex-none"
                         >
-                            {isUpdating ? <Loader2 className="w-5 h-5 mr-2 animate-spin" /> : match.status === 'completed' ? <Flag className="w-5 h-5 mr-2" /> : <Trophy className="w-5 h-5 mr-2" />}
-                            {match.status === 'completed' ? 'Match Finalized' : 'Finalize Match'}
+                            {copied ? <Check className="w-4 h-4 mr-2 text-green-500" /> : <Copy className="w-4 h-4 mr-2" />}
+                            {copied ? "Link Copied!" : "Live Link"}
                         </Button>
-                    )}
+
+                        {/* Broadcast Toggle Button */}
+                        {isOrganizer && match.status !== 'completed' && (
+                            <Button 
+                                variant={match.status === 'live' ? 'default' : 'outline'}
+                                onClick={toggleLiveStatus}
+                                disabled={isUpdating}
+                                className={`flex-1 lg:flex-none transition-all duration-300 ${match.status === 'live' 
+                                    ? 'bg-red-500 hover:bg-red-600 text-white shadow-[0_0_20px_rgba(239,68,68,0.4)] border-red-500' 
+                                    : 'border-white/20 text-muted-foreground hover:text-foreground hover:bg-white/10'}`}
+                            >
+                                <Radio className={`w-4 h-4 mr-2 ${match.status === 'live' ? 'animate-pulse' : ''}`} />
+                                {match.status === 'live' ? 'LIVE NOW' : 'Go Live'}
+                            </Button>
+                        )}
+
+                        {/* Finalize Button */}
+                        {isOrganizer && (
+                            <Button 
+                                variant={match.status === 'completed' ? 'secondary' : 'default'}
+                                onClick={() => handleCompleteMatch(false)} 
+                                disabled={isUpdating || match.status === 'completed'}
+                                className={`flex-1 lg:flex-none ${match.status === 'completed' ? '' : 'bg-primary text-primary-foreground'}`}
+                            >
+                                {isUpdating ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : match.status === 'completed' ? <Flag className="w-4 h-4 mr-2" /> : <Trophy className="w-4 h-4 mr-2" />}
+                                {match.status === 'completed' ? 'Match Finalized' : 'Finalize'}
+                            </Button>
+                        )}
+                    </div>
                 </div>
 
                 <div className="grid grid-cols-1 xl:grid-cols-3 gap-8">

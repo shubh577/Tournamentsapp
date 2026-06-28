@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
-import { Loader2, ChevronLeft } from 'lucide-react';
+import { Loader2, ChevronLeft, ShieldAlert } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 
 export default function PublicLiveMatch() {
@@ -27,6 +27,9 @@ export default function PublicLiveMatch() {
     const [timerValue, setTimerValue] = useState<number>(0);
     const [roundName, setRoundName] = useState<string>('Match');
     
+    // Senshu tracking state
+    const [senshuOwnerId, setSenshuOwnerId] = useState<string | null>(null);
+    
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
@@ -43,6 +46,9 @@ export default function PublicLiveMatch() {
             if (mData) {
                 const isInd = !!mData.player_a_id;
                 let a_name = 'TBA', b_name = 'TBA';
+                
+                const targetAId = isInd ? mData.player_a_id : mData.team_a_id;
+                const targetBId = isInd ? mData.player_b_id : mData.team_b_id;
                 
                 if (isInd) {
                     const { data: p } = await supabase.from('profiles').select('id, name').in('id', [mData.player_a_id, mData.player_b_id].filter(Boolean));
@@ -68,21 +74,54 @@ export default function PublicLiveMatch() {
                 setScoreData(mData.score_data || {});
                 setTimerValue(mData.timer_value || 0);
                 setRoundName(mData.round_name || 'Match');
+
+                // Look up historical events once to establish Senshu owner if page loaded mid-match
+                const { data: historicalEvents } = await supabase
+                    .from('match_events')
+                    .select('event_data')
+                    .eq('match_id', matchId)
+                    .order('created_at', { ascending: true });
+
+                if (historicalEvents) {
+                    for (const e of historicalEvents) {
+                        let evData = e.event_data;
+                        if (typeof evData === 'string') {
+                            try { evData = JSON.parse(evData); } catch (err) {}
+                        }
+                        if (evData?.deltas?.score > 0 && evData?.team_id) {
+                            setSenshuOwnerId(evData.team_id);
+                            break; 
+                        }
+                    }
+                }
+
+                // Step 2: The Independent 1-Second Loop
+                intervalId = setInterval(async () => {
+                    const { data: update, error } = await supabase
+                        .from('matches')
+                        .select('score_data')
+                        .eq('id', matchId)
+                        .single();
+
+                    if (!error && update) {
+                        const newScores = update.score_data || {};
+                        setScoreData(newScores);
+
+                        // If Senshu isn't claimed yet, analyze the live score state to award it natively
+                        setSenshuOwnerId((currentOwner) => {
+                            if (currentOwner) return currentOwner; 
+
+                            const scoreA = newScores[targetAId]?.score || 0;
+                            const scoreB = newScores[targetBId]?.score || 0;
+
+                            if (scoreA > 0 && scoreB === 0) return targetAId;
+                            if (scoreB > 0 && scoreA === 0) return targetBId;
+                            return null;
+                        });
+                    }
+                }, 1000);
             }
             setLoading(false);
-
-            // Step 2: The Independent 1-Second Loop
-            intervalId = setInterval(async () => {
-                const { data: update, error } = await supabase
-                    .from('matches')
-                    .select('score_data')
-                    .eq('id', matchId)
-                    .single();
-
-                if (!error && update) {
-                    setScoreData(update.score_data || {});
-                }
-            }, 1000);
         };
 
         startPollingEngine();
@@ -105,8 +144,13 @@ export default function PublicLiveMatch() {
     const a_warn = a_id ? (scoreData[a_id]?.warnings || 0) : 0;
     const b_warn = b_id ? (scoreData[b_id]?.warnings || 0) : 0;
 
-    // Karate Senshu condition derived dynamically from loop data
-    const hasSenshuA = (a_id && b_id) && (scoreData[a_id]?.score > 0 && scoreData[a_id]?.warnings < 4) && (scoreData[b_id]?.score === 0);
+    // Corrected Karate Senshu WKF rules condition (revoked only if player hits 4 warnings)
+    const hasSenshuA = a_id && senshuOwnerId === a_id && a_warn < 4;
+    const hasSenshuB = b_id && senshuOwnerId === b_id && b_warn < 4;
+
+    // Disqualification Rules Condition (5 Warnings triggers automatic DQ)
+    const isDisqualifiedA = a_warn >= 5;
+    const isDisqualifiedB = b_warn >= 5;
 
     return (
         <div className="h-screen w-screen flex flex-col text-white font-sans overflow-hidden bg-black">
@@ -121,12 +165,23 @@ export default function PublicLiveMatch() {
 
             {/* SPLIT SCREEN SCOREBOARD */}
             <div className="flex flex-1 relative">
+                
                 {/* RED SIDE (AKA) */}
                 <div className="flex-1 bg-red-700 flex flex-col items-center justify-center relative">
+                    {/* Disqualified Visual Overlay layer */}
+                    {isDisqualifiedA && (
+                        <div className="absolute inset-0 bg-black/85 flex flex-col items-center justify-center z-30 p-6 animate-in fade-in duration-300">
+                            <ShieldAlert className="w-16 h-16 text-red-500 mb-4 animate-bounce" />
+                            <div className="text-red-500 font-black text-4xl sm:text-5xl tracking-widest uppercase bg-black border-4 border-red-500 px-6 py-3 rounded-md shadow-[0_0_40px_rgba(239,68,68,0.7)] rotate-[-8deg] text-center">
+                                DISQUALIFIED
+                            </div>
+                        </div>
+                    )}
+
                     <div className="text-4xl font-bold mb-4 tracking-widest opacity-80">Player 1</div>
                     <div className="text-[120px] font-black leading-none flex items-center gap-4">
                         {a_score}
-                        {hasSenshuA && <span className="w-16 h-16 rounded-full bg-yellow-400 text-black flex items-center justify-center text-4xl font-black shadow-lg">S</span>}
+                        {hasSenshuA && <span className="w-16 h-16 rounded-full bg-yellow-400 text-black flex items-center justify-center text-4xl font-black shadow-lg animate-in zoom-in duration-200">S</span>}
                     </div>
                     
                     {/* Warning Indicator Dots */}
@@ -146,8 +201,21 @@ export default function PublicLiveMatch() {
 
                 {/* BLUE SIDE (AO) */}
                 <div className="flex-1 bg-blue-700 flex flex-col items-center justify-center relative">
+                    {/* Disqualified Visual Overlay layer */}
+                    {isDisqualifiedB && (
+                        <div className="absolute inset-0 bg-black/85 flex flex-col items-center justify-center z-30 p-6 animate-in fade-in duration-300">
+                            <ShieldAlert className="w-16 h-16 text-red-500 mb-4 animate-bounce" />
+                            <div className="text-red-500 font-black text-4xl sm:text-5xl tracking-widest uppercase bg-black border-4 border-red-500 px-6 py-3 rounded-md shadow-[0_0_40px_rgba(239,68,68,0.7)] rotate-[8deg] text-center">
+                                DISQUALIFIED
+                            </div>
+                        </div>
+                    )}
+
                     <div className="text-4xl font-bold mb-4 tracking-widest opacity-80">Player 2</div>
-                    <div className="text-[120px] font-black leading-none">{b_score}</div>
+                    <div className="text-[120px] font-black leading-none flex items-center gap-4">
+                        {b_score}
+                        {hasSenshuB && <span className="w-16 h-16 rounded-full bg-yellow-400 text-black flex items-center justify-center text-4xl font-black shadow-lg animate-in zoom-in duration-200">S</span>}
+                    </div>
                     
                     {/* Warning Indicator Dots */}
                     <div className="flex gap-4 mt-8">
@@ -158,6 +226,7 @@ export default function PublicLiveMatch() {
                     
                     <div className="text-4xl font-bold mt-12 text-center px-4 truncate max-w-full">{metaData.b_name}</div>
                 </div>
+
             </div>
         </div>
     );

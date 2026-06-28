@@ -3,11 +3,11 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { supabase } from '@/lib/supabaseClient';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import GlassCard from '@/components/glass/GlassCard';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
-import { Plus, BarChart2, Shield, Settings, Users, ArrowRight, Trophy, Search } from 'lucide-react';
+import { Plus, BarChart2, Shield, Settings, Users, ArrowRight, Trophy, Search, Play } from 'lucide-react';
 import Link from 'next/link';
 
 // Common Components
@@ -54,9 +54,9 @@ const TournamentCard = ({ tournament, teamCount, userRole }: { tournament: any, 
                 <Progress value={(teamCount / tournament.max_teams) * 100} />
                 <div className="mt-4 flex gap-2">
                     <Link href={manageLink} className="shrink-0">
-        <Button size="icon" className="w-10 h-10">
-            <Settings className="w-5 h-5" />
-        </Button>
+                        <Button size="icon" className="w-10 h-10">
+                            <Settings className="w-5 h-5" />
+                        </Button>
                     </Link>
                     <Link href={`/tournament/${tournament.id}/brackets`} className="flex-1">
                         <Button variant="outline" className="w-full">
@@ -75,10 +75,17 @@ const OverviewPage = () => {
     const [profile, setProfile] = useState<any>(null);
     const [tournaments, setTournaments] = useState<any[]>([]);
     const [teams, setTeams] = useState<any[]>([]);
-    const [relatedData, setRelatedData] = useState<any>({}); // For coach/player specific data
+    const [relatedData, setRelatedData] = useState<any>({}); 
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState('Upcoming');
     const router = useRouter();
+
+    // --- DEMO MATCH STATES ---
+    const [showDemoModal, setShowDemoModal] = useState(false);
+    const [demoPlayerA, setDemoPlayerA] = useState('');
+    const [demoPlayerB, setDemoPlayerB] = useState('');
+    const [demoSport, setDemoSport] = useState('karate');
+    const [isStartingDemo, setIsStartingDemo] = useState(false);
 
     const fetchOrganizerData = useCallback(async (userId: string) => {
         const { data: tournamentData } = await supabase.from('tournaments').select('*').eq('organizer_id', userId);
@@ -91,8 +98,23 @@ const OverviewPage = () => {
     }, []);
 
     const fetchCoachData = useCallback(async (userId: string) => {
+        // 1. Fetch Teams
         const { data: coachTeams } = await supabase.from('teams').select('id, name, tournament_id').eq('coach_id', userId);
-        setRelatedData({ myTeams: coachTeams || [] });
+        
+        // 2. Fetch Players (Get IDs first, then their names from profiles to avoid join errors)
+        const { data: coachPlayers } = await supabase.from('players').select('id').eq('coach_id', userId);
+        let fetchedPlayers: any[] = [];
+        
+        if (coachPlayers && coachPlayers.length > 0) {
+            const playerIds = coachPlayers.map(p => p.id);
+            const { data: profiles } = await supabase.from('profiles').select('id, name').in('id', playerIds);
+            fetchedPlayers = profiles || [];
+        }
+
+        setRelatedData({ 
+            myTeams: coachTeams || [],
+            myPlayers: fetchedPlayers 
+        });
 
         if (coachTeams && coachTeams.length > 0) {
             const tournamentIds = [...new Set(coachTeams.map(t => t.tournament_id))];
@@ -139,6 +161,78 @@ const OverviewPage = () => {
         fetchData();
     }, [router, fetchOrganizerData, fetchCoachData, fetchPlayerData]);
 
+    const handleStartDemoMatch = async () => {
+        setIsStartingDemo(true);
+        try {
+            // 1. Look for an existing demo sandbox tournament for this coach
+            let { data: demoTourney } = await supabase
+                .from('tournaments')
+                .select('id')
+                .eq('organizer_id', user.id)
+                .eq('name', 'Coach Demo Sandbox')
+                .maybeSingle(); // Safely returns null instead of throwing an error if 0 rows found
+
+            if (!demoTourney) {
+                const { data: newTourney, error: tErr } = await supabase.from('tournaments').insert({
+                    name: 'Coach Demo Sandbox',
+                    organizer_id: user.id, 
+                    sport: demoSport,
+                    start_date: new Date().toISOString().split('T')[0],
+                    end_date: new Date(new Date().setFullYear(new Date().getFullYear() + 1)).toISOString().split('T')[0],
+                    status: 'upcoming'
+                }).select('id').single();
+                
+                if (tErr) throw tErr;
+                demoTourney = newTourney;
+            }
+
+            // 2. Identify if the sport uses individual players or teams
+            const isIndSport = ['tennis', 'badminton', 'karate', 'judo', 'wrestling'].includes(demoSport.toLowerCase());
+
+            const matchInsertData: any = {
+                tournament_id: demoTourney.id,
+                category: 'Demo',
+                section: 'Practice',
+                round_number: 1,
+                round_name: 'Demo Match',
+                status: 'scheduled',
+                score_data: {} // Pre-initialize empty object to prevent frontend state crashes
+            };
+
+            if (isIndSport) {
+                // Assign the valid profile UUIDs directly to the match row
+                matchInsertData.player_a_id = demoPlayerA || user.id;
+                matchInsertData.player_b_id = demoPlayerB || user.id;
+            } else {
+                // Team sports fallback: Use coach's actual registered team IDs
+                const teamAId = relatedData?.myTeams?.[0]?.id || null;
+                const teamBId = relatedData?.myTeams?.[1]?.id || null;
+                
+                if (!teamAId || !teamBId) {
+                    throw new Error("For team sports, please register at least 2 teams under your account first.");
+                }
+                matchInsertData.team_a_id = teamAId;
+                matchInsertData.team_b_id = teamBId;
+            }
+
+            // 3. Insert directly into matches table
+            const { data: match, error: mErr } = await supabase
+                .from('matches')
+                .insert(matchInsertData)
+                .select('id')
+                .single();
+
+            if (mErr) throw mErr;
+
+            // 4. Redirect to scoring page
+            router.push(`/organizer/match/${match.id}`);
+        } catch (error: any) {
+            console.error("Demo Match Error Details:", error);
+            alert(error.message || "Failed to start demo match. Check your browser console.");
+            setIsStartingDemo(false);
+        }
+    };
+
     const filteredTournaments = tournaments.filter(t => {
         const now = new Date();
         const start = new Date(t.start_date);
@@ -168,7 +262,14 @@ const OverviewPage = () => {
             <h3 className="text-2xl font-bold">No Tournaments Found</h3>
             <p className="text-muted-foreground mb-6">It looks like you're not involved in any tournaments yet.</p>
             {profile.role === 'organizer' && <Link href="/organizer/create-tournament"><Button>Create First Tournament <ArrowRight className="ml-2" /></Button></Link>}
-             {profile.role === 'coach' && <Link href="/dashboard/teams/create"><Button>Register a New Team <ArrowRight className="ml-2" /></Button></Link>}
+            
+            {/* The Replaced Button for Coaches */}
+            {profile.role === 'coach' && (
+                <Button onClick={() => setShowDemoModal(true)} className="bg-primary/20 text-primary border-primary hover:bg-primary hover:text-white transition-all">
+                    Start a Demo Match <Play className="ml-2 w-4 h-4" fill="currentColor" />
+                </Button>
+            )}
+             
             {profile.role === 'player' && <Link href="/dashboard/tournaments"><Button>Find a Tournament <Search className="ml-2" /></Button></Link>}
         </div>
     );
@@ -200,7 +301,6 @@ const OverviewPage = () => {
             <motion.div variants={itemVariants} className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
                 <StatCard title="My Teams" value={relatedData.myTeams?.length || 0} icon={<Users className="text-primary" />} />
                 <StatCard title="Tournaments Entered" value={tournaments.length} icon={<Trophy className="text-yellow-400" />} />
-                {/* Placeholder for Upcoming Matches */}
                 <StatCard title="Upcoming Matches" value="0" icon={<Shield className="text-green-400" />} />
             </motion.div>
         </>
@@ -217,7 +317,6 @@ const OverviewPage = () => {
             <motion.div variants={itemVariants} className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
                 <StatCard title="Teams Joined" value={relatedData.teamsJoined?.length || 0} icon={<Users className="text-primary" />} />
                 <StatCard title="Active Tournaments" value={tournaments.filter(t => new Date(t.end_date) >= new Date()).length} icon={<Trophy className="text-yellow-400" />} />
-                {/* Placeholder for Upcoming Matches */}
                 <StatCard title="Upcoming Matches" value="0" icon={<Shield className="text-green-400" />} />
             </motion.div>
         </>
@@ -237,25 +336,97 @@ const OverviewPage = () => {
     }
 
     return (
-        <motion.div variants={containerVariants} initial="hidden" animate="visible" className="p-4 sm:p-8">
-            {renderDashboardHeader()}
-            <motion.div variants={itemVariants}>
-                <GlassCard>
-                    <div className="p-4 border-b border-white/10 flex gap-2">
-                        {['Upcoming', 'Live', 'Completed'].map(tab => (
-                            <Button key={tab} variant={activeTab === tab ? 'default' : 'ghost'} onClick={() => setActiveTab(tab)}>{tab}</Button>
-                        ))}
-                    </div>
-                    {tournaments.length === 0 ? renderEmptyState() : (
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 p-6">
-                            {filteredTournaments.map(t => (
-                                <TournamentCard key={t.id} tournament={t} teamCount={teams.filter(team => team.tournament_id === t.id).length} userRole={profile.role} />
+        <>
+            {/* DEMO MATCH MODAL */}
+            <AnimatePresence>
+                {showDemoModal && (
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+                        <motion.div initial={{ scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} className="w-full max-w-md">
+                            <GlassCard className="p-6">
+                                <h2 className="text-2xl font-bold mb-2 font-headline">Start a Demo Match</h2>
+                                <p className="text-sm text-muted-foreground mb-6">Test the scoring engine live. A private sandbox match will be generated for you.</p>
+                                
+                                <div className="space-y-4 mb-8">
+                                    <div className="space-y-1.5">
+                                        <label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Select Sport</label>
+                                        <select 
+                                            value={demoSport} 
+                                            onChange={e => setDemoSport(e.target.value)} 
+                                            className="w-full h-12 bg-black/40 border border-white/10 rounded-xl px-4 text-sm focus:outline-none focus:border-primary/50"
+                                        >
+                                            <option value="karate">Karate</option>
+                                            <option value="judo">Judo</option>
+                                            <option value="wrestling">Wrestling</option>
+                                            <option value="tennis">Tennis</option>
+                                            <option value="badminton">Badminton</option>
+                                            <option value="cricket">Cricket</option>
+                                            <option value="football">Football</option>
+                                        </select>
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <label className="text-xs font-bold text-red-400 uppercase tracking-wider">Competitor 1 (AKA / Home)</label>
+                                        <select 
+                                            value={demoPlayerA} 
+                                            onChange={e => setDemoPlayerA(e.target.value)} 
+                                            className="w-full h-12 bg-black/40 border border-white/10 rounded-xl px-4 text-sm focus:outline-none focus:border-red-500/50"
+                                        >
+                                            <option value="">Select a player...</option>
+                                            {relatedData?.myPlayers?.map((p: any) => (
+                                                <option key={p.id} value={p.id}>{p.name}</option>
+                                            ))}
+                                            {/* Secure placeholder utilizing coach profile to prevent foreign key constraint fails */}
+                                            <option value={user?.id}>Myself (Coach Account)</option>
+                                        </select>
+                                    </div>
+                                    <div className="space-y-1.5">
+                                        <label className="text-xs font-bold text-blue-400 uppercase tracking-wider">Competitor 2 (AO / Away)</label>
+                                        <select 
+                                            value={demoPlayerB} 
+                                            onChange={e => setDemoPlayerB(e.target.value)} 
+                                            className="w-full h-12 bg-black/40 border border-white/10 rounded-xl px-4 text-sm focus:outline-none focus:border-blue-500/50"
+                                        >
+                                            <option value="">Select a player...</option>
+                                            {relatedData?.myPlayers?.map((p: any) => (
+                                                <option key={p.id} value={p.id}>{p.name}</option>
+                                            ))}
+                                            <option value={user?.id}>Myself (Coach Account)</option>
+                                        </select>
+                                    </div>
+                                </div>
+
+                                <div className="flex gap-3 justify-end border-t border-white/10 pt-4">
+                                    <Button variant="ghost" onClick={() => setShowDemoModal(false)}>Cancel</Button>
+                                    <Button onClick={handleStartDemoMatch} disabled={!demoPlayerA || !demoPlayerB || isStartingDemo} className="font-bold">
+                                        {isStartingDemo ? 'Generating Sandbox...' : 'Start Match'}
+                                    </Button>
+                                </div>
+                            </GlassCard>
+                        </motion.div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
+
+            {/* MAIN DASHBOARD */}
+            <motion.div variants={containerVariants} initial="hidden" animate="visible" className="p-4 sm:p-8">
+                {renderDashboardHeader()}
+                <motion.div variants={itemVariants}>
+                    <GlassCard>
+                        <div className="p-4 border-b border-white/10 flex gap-2">
+                            {['Upcoming', 'Live', 'Completed'].map(tab => (
+                                <Button key={tab} variant={activeTab === tab ? 'default' : 'ghost'} onClick={() => setActiveTab(tab)}>{tab}</Button>
                             ))}
                         </div>
-                    )}
-                </GlassCard>
+                        {tournaments.length === 0 ? renderEmptyState() : (
+                            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 p-6">
+                                {filteredTournaments.map(t => (
+                                    <TournamentCard key={t.id} tournament={t} teamCount={teams.filter(team => team.tournament_id === t.id).length} userRole={profile.role} />
+                                ))}
+                            </div>
+                        )}
+                    </GlassCard>
+                </motion.div>
             </motion.div>
-        </motion.div>
+        </>
     );
 };
 
