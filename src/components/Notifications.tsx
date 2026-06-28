@@ -1,12 +1,14 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { supabase } from '@/lib/supabaseClient'
 import { Button } from '@/components/ui/button'
 import { Bell, Check, X, Loader2 } from 'lucide-react'
 import { motion, AnimatePresence } from 'framer-motion'
 
-const NotificationItem = ({ notification, onUpdate }: { notification: any, onUpdate: () => void }) => {
+const NotificationItem = ({ notification, onUpdate, onClose }: { notification: any, onUpdate: () => void, onClose: () => void }) => {
+  const router = useRouter();
   const [isProcessing, setIsProcessing] = useState(false);
 
   // --- PLAYER ACCEPTING A TEAM INVITE ---
@@ -24,6 +26,14 @@ const NotificationItem = ({ notification, onUpdate }: { notification: any, onUpd
     
     setIsProcessing(false);
     onUpdate();
+    onClose();
+
+    // Redirect to tournament public page if the invite is tied to a specific tournament
+    if (notification.metadata?.tournament_id) {
+        router.push(`/tournament/${notification.metadata.tournament_id}`);
+    } else {
+        router.push('/dashboard/overview');
+    }
   };
 
   const handleTeamDecline = async () => {
@@ -64,13 +74,21 @@ const NotificationItem = ({ notification, onUpdate }: { notification: any, onUpd
         await supabase.from('notifications').insert({
             user_id: inviteData.organizer_id,
             type: 'system',
-            message: `${profile?.name} accepted your invite to ${notification.metadata.tournament_name}!`
+            message: `${profile?.name} accepted your invite to ${notification.metadata.tournament_name || 'the tournament'}!`
         });
     }
 
     await supabase.from('notifications').update({ is_read: true }).eq('id', notification.id);
     setIsProcessing(false);
     onUpdate();
+    onClose();
+
+    // Immediately route the coach to the tournament's public page to manage their roster
+    if (inviteData?.tournament_id) {
+        router.push(`/tournament/${inviteData.tournament_id}`);
+    } else if (notification.metadata?.tournament_id) {
+        router.push(`/tournament/${notification.metadata.tournament_id}`);
+    }
   };
 
   const handleTournamentDecline = async () => {
@@ -82,7 +100,7 @@ const NotificationItem = ({ notification, onUpdate }: { notification: any, onUpd
      await supabase.from('notifications').insert({
          user_id: notification.metadata.organizer_id,
          type: 'system',
-         message: `${profile?.name} declined your invite to ${notification.metadata.tournament_name}.`
+         message: `${profile?.name} declined your invite to ${notification.metadata.tournament_name || 'the tournament'}.`
      });
 
      await supabase.from('notifications').update({ is_read: true }).eq('id', notification.id);
@@ -152,7 +170,11 @@ export const Notifications = () => {
 
   useEffect(() => {
     fetchNotifications();
-    const channel = supabase.channel('custom-all-channel')
+    
+    // Create a uniquely named channel for this specific component mount cycle
+    const channelName = `notifications-${Math.random().toString(36).substring(7)}`;
+
+    const channel = supabase.channel(channelName)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications' }, fetchNotifications)
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'notifications' }, fetchNotifications)
       .subscribe();
@@ -185,7 +207,7 @@ export const Notifications = () => {
                 </div>
                 {notifications.length > 0 ? (
                     <div className="max-h-96 overflow-y-auto custom-scrollbar">
-                        {notifications.map(n => <NotificationItem key={n.id} notification={n} onUpdate={fetchNotifications} />)}
+                        {notifications.map(n => <NotificationItem key={n.id} notification={n} onUpdate={fetchNotifications} onClose={() => setIsOpen(false)} />)}
                     </div>
                 ) : (
                     <div className="p-8 text-center">

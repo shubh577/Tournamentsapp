@@ -168,7 +168,7 @@ const OverviewPage = () => {
             <h3 className="text-2xl font-bold">No Tournaments Found</h3>
             <p className="text-muted-foreground mb-6">It looks like you're not involved in any tournaments yet.</p>
             {profile.role === 'organizer' && <Link href="/organizer/create-tournament"><Button>Create First Tournament <ArrowRight className="ml-2" /></Button></Link>}
-             {profile.role === 'coach' && <Link href="/coach/teams/new"><Button>Register a New Team <ArrowRight className="ml-2" /></Button></Link>}
+             {profile.role === 'coach' && <Link href="/dashboard/teams/create"><Button>Register a New Team <ArrowRight className="ml-2" /></Button></Link>}
             {profile.role === 'player' && <Link href="/dashboard/tournaments"><Button>Find a Tournament <Search className="ml-2" /></Button></Link>}
         </div>
     );
@@ -193,7 +193,7 @@ const OverviewPage = () => {
         <>
             <motion.div variants={itemVariants} className="flex flex-col sm:flex-row justify-between items-center mb-8">
                 <h1 className="text-3xl font-bold font-headline">Welcome back, Coach {profile?.name || ''}!</h1>
-                <Link href="/coach/teams/new">
+                <Link href="/dashboard/teams/create">
                      <Button size="lg" className="mt-4 sm:mt-0 neon-glow-primary"><Plus className="mr-2" /> Register New Team</Button>
                 </Link>
             </motion.div>

@@ -8,6 +8,7 @@ import {
   LayoutDashboard, 
   Trophy, 
   Users, 
+  Shield,
   LogOut,
   Activity,
   Globe,
@@ -127,10 +128,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   // Dynamically change names based on role (Fans see "Tournaments", Organizers see "My Tournaments")
   const getNavItems = (role: string) => [
-    { name: 'Overview', href: '/dashboard/overview', icon: LayoutDashboard, roles: ['organizer'] },
+    { name: 'Overview', href: '/dashboard/overview', icon: LayoutDashboard, roles: ['organizer','coach'] },
     { name: 'Live Scoring', href: '/dashboard/pulse', icon: Activity, roles: ['organizer', 'coach', 'player', 'fan'] },
     { name: role === 'fan' ? 'Tournaments' : 'My Tournaments', href: '/dashboard/tournaments', icon: Trophy, roles: ['organizer', 'coach', 'player', 'fan'] },
-    { name: role === 'fan' ? 'Teams' : 'My Teams', href: '/dashboard/teams', icon: Users, roles: ['coach', 'player', 'fan'] },
+    { name: role === 'fan' ? 'Teams' : 'My Teams', href: '/dashboard/teams', icon: Shield, roles: ['coach', 'player', 'fan'] },
+    { name: 'My Players', href: '/dashboard/players', icon: Users, roles: ['coach'] },
     { name: 'Community Hub', href: '/dashboard/community', icon: Globe, roles: ['organizer', 'coach', 'player', 'fan'] },
   ].filter(item => item.roles.includes(role));
 

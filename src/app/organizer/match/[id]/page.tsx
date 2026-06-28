@@ -11,6 +11,8 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Loader2, ChevronLeft, Activity, Trophy, AlertCircle, Clock, Zap, Flag, History, Play, Pause, RotateCcw, Pencil, Save, Lock, AlertTriangle } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 
+const INDIVIDUAL_SPORTS = ['tennis', 'badminton', 'karate', 'judo', 'wrestling'];
+
 const MatchScoringPage = () => {
     const params = useParams();
     const router = useRouter();
@@ -27,7 +29,6 @@ const MatchScoringPage = () => {
 
     // Dynamic Score State
     const [scoreData, setScoreData] = useState<Record<string, any>>({});
-    // Use a ref to track the absolute latest state to prevent rapid-tap race conditions
     const scoreDataRef = useRef<Record<string, any>>({});
 
     // Timer State
@@ -44,7 +45,7 @@ const MatchScoringPage = () => {
     useEffect(() => {
         fetchMatchData();
 
-        // REALTIME SYNC: Keep multiple scoring iPads perfectly in sync
+        // REALTIME SYNC
         const channel = supabase.channel(`match-control-${matchId}`)
             .on('postgres_changes', { 
                 event: 'UPDATE', 
@@ -52,12 +53,10 @@ const MatchScoringPage = () => {
                 table: 'matches', 
                 filter: `id=eq.${matchId}` 
             }, (payload) => {
-                // Only update if we aren't the ones currently pushing an update
                 if (payload.new.score_data) {
                    setScoreData(payload.new.score_data);
                 }
                 if (payload.new.status) {
-                    // FIX: Added explicit (prev: any) typing
                     setMatch((prev: any) => ({...prev, status: payload.new.status}));
                 }
             })
@@ -67,7 +66,6 @@ const MatchScoringPage = () => {
                 table: 'match_events', 
                 filter: `match_id=eq.${matchId}` 
             }, (payload) => {
-                // FIX: Added explicit (prev: any[]) typing
                 setEvents((prev: any[]) => [payload.new, ...prev]);
             })
             .subscribe();
@@ -83,31 +81,58 @@ const MatchScoringPage = () => {
         const { data: { user } } = await supabase.auth.getUser();
         setCurrentUserId(user?.id || null);
 
-        const { data: matchData } = await supabase
-            .from('match_details')
-            .select('*')
-            .eq('id', matchId)
-            .single();
-            
+        // Fetch raw match directly from table
         const { data: rawMatch, error: rawError } = await supabase
             .from('matches')
-            .select('score_data, status')
+            .select('*')
             .eq('id', matchId)
             .single();
             
         if (rawError) console.error("Database connection issue for scores:", rawError);
             
-        if (matchData) {
-            setMatch({ ...matchData, status: rawMatch?.status || matchData.status });
-            
-            const initialScores = rawMatch?.score_data || matchData.score_data || {};
-            if (!initialScores[matchData.team_a_id]) initialScores[matchData.team_a_id] = { score: 0, secondary: 0, tertiary: 0, warnings: 0 };
-            if (!initialScores[matchData.team_b_id]) initialScores[matchData.team_b_id] = { score: 0, secondary: 0, tertiary: 0, warnings: 0 };
-            
-            setScoreData(initialScores);
-
-            const { data: tourneyData } = await supabase.from('tournaments').select('id, sport, name, rules, organizer_id').eq('id', matchData.tournament_id).single();
+        if (rawMatch) {
+            const { data: tourneyData } = await supabase
+                .from('tournaments')
+                .select('id, sport, name, rules, organizer_id')
+                .eq('id', rawMatch.tournament_id)
+                .single();
+                
             if (tourneyData) setTournament(tourneyData);
+
+            const isIndSport = INDIVIDUAL_SPORTS.includes(tourneyData?.sport?.toLowerCase() || '');
+            let a_name = 'TBA', a_logo = '', b_name = 'TBA', b_logo = '';
+            
+            // Map the correct ID based on the sport type
+            const a_id = isIndSport ? rawMatch.player_a_id : rawMatch.team_a_id;
+            const b_id = isIndSport ? rawMatch.player_b_id : rawMatch.team_b_id;
+
+            // Fetch actual names and avatars based on the ID mapping
+            if (isIndSport) {
+                const { data: profiles } = await supabase.from('profiles').select('id, name, avatar_url').in('id', [a_id, b_id].filter(Boolean));
+                const pA = profiles?.find(p => p.id === a_id);
+                const pB = profiles?.find(p => p.id === b_id);
+                if (pA) { a_name = pA.name; a_logo = pA.avatar_url; }
+                if (pB) { b_name = pB.name; b_logo = pB.avatar_url; }
+            } else {
+                const { data: teams } = await supabase.from('teams').select('id, name, logo_url').in('id', [a_id, b_id].filter(Boolean));
+                const tA = teams?.find(t => t.id === a_id);
+                const tB = teams?.find(t => t.id === b_id);
+                if (tA) { a_name = tA.name; a_logo = tA.logo_url; }
+                if (tB) { b_name = tB.name; b_logo = tB.logo_url; }
+            }
+
+            const normalizedMatch = {
+                ...rawMatch,
+                a_id, a_name, a_logo,
+                b_id, b_name, b_logo,
+            };
+
+            setMatch(normalizedMatch);
+            
+            const initialScores = rawMatch.score_data || {};
+            if (a_id && !initialScores[a_id]) initialScores[a_id] = { score: 0, secondary: 0, tertiary: 0, warnings: 0 };
+            if (b_id && !initialScores[b_id]) initialScores[b_id] = { score: 0, secondary: 0, tertiary: 0, warnings: 0 };
+            setScoreData(initialScores);
 
             const { data: eventData } = await supabase
                 .from('match_events')
@@ -135,7 +160,6 @@ const MatchScoringPage = () => {
         let interval: NodeJS.Timeout;
         if (isTimerRunning && timeLeft !== null && timeLeft > 0) {
             interval = setInterval(() => {
-                // FIX: Added explicit (prev: number | null) typing
                 setTimeLeft((prev: number | null) => (prev !== null && prev > 0 ? prev - 1 : 0));
             }, 1000);
         } else if (isTimerRunning && timeLeft === 0) {
@@ -178,14 +202,11 @@ const MatchScoringPage = () => {
     const handleSaveTime = () => {
         const m = parseInt(editMins || "0", 10);
         const s = parseInt(editSecs || "0", 10);
-        
-        if (!isNaN(m) && !isNaN(s)) {
-            setTimeLeft((m * 60) + s);
-        }
+        if (!isNaN(m) && !isNaN(s)) setTimeLeft((m * 60) + s);
         setIsEditingTime(false);
     };
 
-    // --- UNIVERSAL SCORING & WARNING ENGINE (Fixed Race Conditions) ---
+    // --- UNIVERSAL SCORING & WARNING ENGINE ---
     const handleScoreUpdate = async (
         teamId: string, 
         teamName: string, 
@@ -193,10 +214,8 @@ const MatchScoringPage = () => {
         deltas: { score?: number, secondary?: number, tertiary?: number, warnings?: number }
     ) => {
         if (!isOrganizer) return;
-
         setIsUpdating(true);
 
-        // Always calculate off the ref to prevent rapid-tap overwrites
         const latestData = scoreDataRef.current;
         const currentTeamData = latestData[teamId] || { score: 0, secondary: 0, tertiary: 0, warnings: 0 };
         
@@ -218,7 +237,6 @@ const MatchScoringPage = () => {
             created_at: new Date().toISOString()
         };
 
-        // FIX: Added explicit (prev: any[]) typing
         setEvents((prev: any[]) => [newEvent, ...prev]);
 
         const [updateRes, insertRes] = await Promise.all([
@@ -230,25 +248,18 @@ const MatchScoringPage = () => {
             })
         ]);
 
-        if (updateRes.error) {
-            console.error("FAILED TO SAVE SCORE:", updateRes.error);
-            alert("Network Error: Failed to save score. Please check your connection.");
-        }
-
+        if (updateRes.error) alert("Network Error: Failed to save score.");
         setIsUpdating(false);
 
         // DISQUALIFICATION ENGINE (5 Warnings)
         if (newTeamData.warnings >= 5 && match.status !== 'completed') {
-            setTimeout(() => {
-                alert(`🚨 DISQUALIFICATION: ${teamName} has received 5 warnings! Please finalize the match.`);
-                setIsTimerRunning(false);
-            }, 500);
+            setTimeout(() => alert(`🚨 DISQUALIFICATION: ${teamName} has received 5 warnings! Please finalize the match.`), 500);
+            setIsTimerRunning(false);
         }
     };
 
     const handleCompleteMatch = async (autoFinalize = false) => {
         if (!isOrganizer) return;
-
         if (!autoFinalize) {
             const confirmEnd = window.confirm("Are you sure you want to finalize this match? This will lock the scores.");
             if (!confirmEnd) return;
@@ -259,28 +270,58 @@ const MatchScoringPage = () => {
         setIsUpdating(false);
 
         if (!error) {
-            // FIX: Added explicit (prev: any) typing
             setMatch((prev: any) => ({...prev, status: 'completed'}));
             alert("Match Finalized!");
-            
-            if (tournament?.id) {
-                router.push(`/organizer/manage-tournament/${tournament.id}`);
-            } else {
-                router.push(`/dashboard/overview`);
-            }
-        } else {
-            console.error("Failed to complete match:", error);
-            alert("Error finalizing match.");
-        }
+            if (tournament?.id) router.push(`/organizer/manage-tournament/${tournament.id}`);
+            else router.push(`/dashboard/overview`);
+        } else alert("Error finalizing match.");
     };
+
+    // --- KARATE SENSHU LOGIC (Bulletproofed) ---
+    const getSenshuTeamId = () => {
+        const currentSport = tournament?.sport?.toLowerCase()?.trim() || '';
+        if (currentSport !== 'karate') return null;
+        
+        // Reverse to scan from oldest event to newest
+        const oldestFirstEvents = [...events].reverse();
+        
+        for (const e of oldestFirstEvents) {
+            // Safely parse event_data in case the database returned a string
+            let evData = e.event_data;
+            if (typeof evData === 'string') {
+                try { evData = JSON.parse(evData); } catch (err) {}
+            }
+            
+            const scoreDelta = evData?.deltas?.score;
+            
+            // We are looking for the very first positive score event
+            if (typeof scoreDelta === 'number' && scoreDelta > 0) {
+                const tId = evData.team_id;
+                if (!tId) continue;
+
+                // WKF Rule: Senshu is revoked if the player accumulates 4 warnings
+                if ((scoreData[tId]?.warnings || 0) >= 4) {
+                    return null;
+                }
+                
+                return tId;
+            }
+        }
+        
+        return null;
+    };
+
+    const senshuTeamId = getSenshuTeamId();
 
     // --- DYNAMIC SCOREBOARD FORMATTER ---
     const renderScoreDisplay = (teamId: string) => {
+        const currentSport = tournament?.sport?.toLowerCase()?.trim() || '';
         const data = scoreData[teamId] || { score: 0, secondary: 0, warnings: 0 };
-        const teamColorClass = teamId === match.team_a_id ? "text-red-500" : "text-blue-500";
+        const teamColorClass = teamId === match.a_id ? "text-red-500" : "text-blue-500";
+        const hasSenshu = currentSport === 'karate' && senshuTeamId === teamId;
 
         const baseScore = (() => {
-            if (sport === 'cricket') {
+            if (currentSport === 'cricket') {
                 return (
                     <div className="flex flex-col items-center">
                         <span className={`text-6xl sm:text-8xl font-black font-mono tracking-tighter drop-shadow-[0_0_15px_currentColor] ${teamColorClass}`}>
@@ -290,7 +331,7 @@ const MatchScoringPage = () => {
                     </div>
                 );
             }
-            if (sport === 'tennis' || sport === 'volleyball' || sport === 'badminton') {
+            if (currentSport === 'tennis' || currentSport === 'volleyball' || currentSport === 'badminton') {
                 return (
                     <div className="flex flex-col items-center">
                         <div className="flex gap-4 items-baseline">
@@ -300,17 +341,54 @@ const MatchScoringPage = () => {
                     </div>
                 );
             }
-            return <span className={`text-6xl sm:text-8xl font-black font-mono tracking-tighter drop-shadow-[0_0_15px_currentColor] ${teamColorClass}`}>{data.score}</span>;
+            
+            // Karate & Default fallback
+            return (
+                <div className="relative flex justify-center items-center w-full">
+                    <span className={`text-6xl sm:text-8xl font-black font-mono tracking-tighter drop-shadow-[0_0_15px_currentColor] ${teamColorClass}`}>
+                        {data.score}
+                    </span>
+                    
+                    {/* The Senshu "S" Badge - Refactored to pure HTML to prevent mounting glitches */}
+                    {hasSenshu && (
+                        <div 
+                            className="absolute -top-4 -right-2 sm:-top-6 sm:-right-6 z-50 bg-yellow-500 text-black text-2xl sm:text-3xl font-black w-10 h-10 sm:w-12 sm:h-12 flex items-center justify-center rounded-full shadow-[0_0_25px_rgba(234,179,8,1)] border-2 border-black animate-in zoom-in duration-300"
+                            title="Senshu (First Point Advantage)"
+                        >
+                            S
+                        </div>
+                    )}
+                </div>
+            );
         })();
 
         return (
             <div className="flex flex-col items-center">
                 {baseScore}
-                {/* Yellow Warning Indicator */}
-                <div className={`mt-4 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1 ${data.warnings > 0 ? 'bg-yellow-500/20 text-yellow-500 border border-yellow-500/30' : 'bg-white/5 text-muted-foreground opacity-30'}`}>
-                    <AlertTriangle className="w-3 h-3" />
-                    Warnings: {data.warnings} / 5
-                </div>
+                
+                {/* Warnings Indicator (Visual Dots for Karate, Text for others) */}
+                {currentSport === 'karate' ? (
+                    <div className="mt-6 flex flex-col items-center">
+                        <span className="text-[10px] text-muted-foreground uppercase tracking-widest font-bold mb-2">Warnings</span>
+                        <div className="flex gap-2">
+                            {[...Array(5)].map((_, i) => (
+                                <div 
+                                    key={i} 
+                                    className={`w-4 h-4 sm:w-5 sm:h-5 rounded-full border transition-all duration-300 ${
+                                        i < data.warnings 
+                                            ? 'bg-yellow-500 border-yellow-500 shadow-[0_0_10px_rgba(234,179,8,0.6)]' 
+                                            : 'bg-black/40 border-white/20'
+                                    }`} 
+                                />
+                            ))}
+                        </div>
+                    </div>
+                ) : (
+                    <div className={`mt-4 px-3 py-1 rounded-full text-xs font-bold flex items-center gap-1 ${data.warnings > 0 ? 'bg-yellow-500/20 text-yellow-500 border border-yellow-500/30' : 'bg-white/5 text-muted-foreground opacity-30'}`}>
+                        <AlertTriangle className="w-3 h-3" />
+                        Warnings: {data.warnings} / 5
+                    </div>
+                )}
             </div>
         );
     };
@@ -528,11 +606,11 @@ const MatchScoringPage = () => {
                                 {/* Team A (Red Styling) */}
                                 <div className="flex flex-col items-center flex-1">
                                     <Avatar className="w-20 h-20 sm:w-28 sm:h-28 border-4 border-red-500 mb-4 shadow-[0_0_30px_rgba(239,68,68,0.3)] bg-black/50">
-                                        <AvatarImage src={match.team_a_logo} />
-                                        <AvatarFallback className="text-2xl text-red-500 font-bold bg-transparent">{match.team_a_name?.charAt(0)}</AvatarFallback>
+                                        <AvatarImage src={match.a_logo} />
+                                        <AvatarFallback className="text-2xl text-red-500 font-bold bg-transparent">{match.a_name?.charAt(0)}</AvatarFallback>
                                     </Avatar>
-                                    <h2 className="text-xl sm:text-2xl font-bold text-center mb-2 line-clamp-1 text-red-100">{match.team_a_name}</h2>
-                                    {renderScoreDisplay(match.team_a_id)}
+                                    <h2 className="text-xl sm:text-2xl font-bold text-center mb-2 line-clamp-1 text-red-100">{match.a_name}</h2>
+                                    {match.a_id && renderScoreDisplay(match.a_id)}
                                 </div>
 
                                 <div className="px-4 sm:px-8 text-2xl sm:text-4xl font-black text-white/20 italic">VS</div>
@@ -540,11 +618,11 @@ const MatchScoringPage = () => {
                                 {/* Team B (Blue Styling) */}
                                 <div className="flex flex-col items-center flex-1">
                                     <Avatar className="w-20 h-20 sm:w-28 sm:h-28 border-4 border-blue-500 mb-4 shadow-[0_0_30px_rgba(59,130,246,0.3)] bg-black/50">
-                                        <AvatarImage src={match.team_b_logo} />
-                                        <AvatarFallback className="text-2xl text-blue-500 font-bold bg-transparent">{match.team_b_name?.charAt(0)}</AvatarFallback>
+                                        <AvatarImage src={match.b_logo} />
+                                        <AvatarFallback className="text-2xl text-blue-500 font-bold bg-transparent">{match.b_name?.charAt(0)}</AvatarFallback>
                                     </Avatar>
-                                    <h2 className="text-xl sm:text-2xl font-bold text-center mb-2 line-clamp-1 text-blue-100">{match.team_b_name}</h2>
-                                    {renderScoreDisplay(match.team_b_id)}
+                                    <h2 className="text-xl sm:text-2xl font-bold text-center mb-2 line-clamp-1 text-blue-100">{match.b_name}</h2>
+                                    {match.b_id && renderScoreDisplay(match.b_id)}
                                 </div>
                             </div>
                         </GlassCard>
@@ -554,14 +632,14 @@ const MatchScoringPage = () => {
                             <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                                 {/* Team A Scoring Panel */}
                                 <GlassCard className="p-6 border-red-500/20 shadow-[0_0_20px_rgba(239,68,68,0.05)]">
-                                    <h3 className="font-bold text-lg text-red-400 uppercase tracking-widest text-center mb-2">Score for {match.team_a_name}</h3>
-                                    {renderScoringControls(match.team_a_id, match.team_a_name)}
+                                    <h3 className="font-bold text-lg text-red-400 uppercase tracking-widest text-center mb-2">Score for {match.a_name}</h3>
+                                    {match.a_id ? renderScoringControls(match.a_id, match.a_name) : <p className="text-center text-muted-foreground text-sm py-4">Participant TBA</p>}
                                 </GlassCard>
 
                                 {/* Team B Scoring Panel */}
                                 <GlassCard className="p-6 border-blue-500/20 shadow-[0_0_20px_rgba(59,130,246,0.05)]">
-                                    <h3 className="font-bold text-lg text-blue-400 uppercase tracking-widest text-center mb-2">Score for {match.team_b_name}</h3>
-                                    {renderScoringControls(match.team_b_id, match.team_b_name)}
+                                    <h3 className="font-bold text-lg text-blue-400 uppercase tracking-widest text-center mb-2">Score for {match.b_name}</h3>
+                                    {match.b_id && !match.is_bye ? renderScoringControls(match.b_id, match.b_name) : <p className="text-center text-muted-foreground text-sm py-4">{match.is_bye ? "BYE" : "Participant TBA"}</p>}
                                 </GlassCard>
                             </div>
                         )}
@@ -593,7 +671,7 @@ const MatchScoringPage = () => {
                                         >
                                             {/* Color-coded Timeline Dots */}
                                             <div className={`w-3 h-3 rounded-full mt-1.5 shrink-0 ${
-                                                ev.event_data?.team_id === match.team_a_id 
+                                                ev.event_data?.team_id === match.a_id 
                                                     ? 'bg-red-500 shadow-[0_0_10px_rgba(239,68,68,0.8)]' 
                                                     : 'bg-blue-500 shadow-[0_0_10px_rgba(59,130,246,0.8)]'
                                             }`} />
