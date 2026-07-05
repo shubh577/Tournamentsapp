@@ -81,7 +81,7 @@ const MatchScoringPage = () => {
         const { data: { user } } = await supabase.auth.getUser();
         setCurrentUserId(user?.id || null);
 
-        // Fetch raw match directly from table
+        // Fetch raw match directly from table including our new polymorphic tracking rows
         const { data: rawMatch, error: rawError } = await supabase
             .from('matches')
             .select('*')
@@ -102,23 +102,57 @@ const MatchScoringPage = () => {
             const isIndSport = INDIVIDUAL_SPORTS.includes(tourneyData?.sport?.toLowerCase() || '');
             let a_name = 'TBA', a_logo = '', b_name = 'TBA', b_logo = '';
             
-            // Map the correct ID based on the sport type
-            const a_id = isIndSport ? rawMatch.player_a_id : rawMatch.team_a_id;
-            const b_id = isIndSport ? rawMatch.player_b_id : rawMatch.team_b_id;
+            // Map the correct ID based on the sport type (Supporting standard and shadow fallbacks)
+            const a_id = isIndSport 
+                ? (rawMatch.player_a_id || rawMatch.shadow_player_a_id) 
+                : rawMatch.team_a_id;
+            const b_id = isIndSport 
+                ? (rawMatch.player_b_id || rawMatch.shadow_player_b_id) 
+                : rawMatch.team_b_id;
 
             // Fetch actual names and avatars based on the ID mapping
             if (isIndSport) {
-                const { data: profiles } = await supabase.from('profiles').select('id, name, avatar_url').in('id', [a_id, b_id].filter(Boolean));
-                const pA = profiles?.find(p => p.id === a_id);
-                const pB = profiles?.find(p => p.id === b_id);
-                if (pA) { a_name = pA.name; a_logo = pA.avatar_url; }
-                if (pB) { b_name = pB.name; b_logo = pB.avatar_url; }
+                // 1. First, attempt to resolve through standard registered profile rows
+                const profileIds = [rawMatch.player_a_id, rawMatch.player_b_id].filter(Boolean);
+                let standardProfiles: any[] = [];
+                if (profileIds.length > 0) {
+                    const { data: profiles } = await supabase.from('profiles').select('id, name, avatar_url').in('id', profileIds);
+                    standardProfiles = profiles || [];
+                }
+
+                // 2. Second, attempt to resolve through shadow profile proxy records
+                const shadowIds = [rawMatch.shadow_player_a_id, rawMatch.shadow_player_b_id].filter(Boolean);
+                let shadowProfiles: any[] = [];
+                if (shadowIds.length > 0) {
+                    const { data: shadows } = await supabase.from('shadow_profiles').select('id, name').in('id', shadowIds);
+                    shadowProfiles = shadows || [];
+                }
+
+                // 3. Assign Names with accurate structural priority checks
+                if (rawMatch.player_a_id) {
+                    const pA = standardProfiles.find(p => p.id === rawMatch.player_a_id);
+                    if (pA) { a_name = pA.name; a_logo = pA.avatar_url; }
+                } else if (rawMatch.shadow_player_a_id) {
+                    const sA = shadowProfiles.find(s => s.id === rawMatch.shadow_player_a_id);
+                    if (sA) { a_name = sA.name; a_logo = ''; } // Shadows have default text/generic avatars
+                }
+
+                if (rawMatch.player_b_id) {
+                    const pB = standardProfiles.find(p => p.id === rawMatch.player_b_id);
+                    if (pB) { b_name = pB.name; b_logo = pB.avatar_url; }
+                } else if (rawMatch.shadow_player_b_id) {
+                    const sB = shadowProfiles.find(s => s.id === rawMatch.shadow_player_b_id);
+                    if (sB) { b_name = sB.name; b_logo = ''; }
+                }
             } else {
-                const { data: teams } = await supabase.from('teams').select('id, name, logo_url').in('id', [a_id, b_id].filter(Boolean));
-                const tA = teams?.find(t => t.id === a_id);
-                const tB = teams?.find(t => t.id === b_id);
-                if (tA) { a_name = tA.name; a_logo = tA.logo_url; }
-                if (tB) { b_name = tB.name; b_logo = tB.logo_url; }
+                const teamsIds = [rawMatch.team_a_id, rawMatch.team_b_id].filter(Boolean);
+                if (teamsIds.length > 0) {
+                    const { data: teams } = await supabase.from('teams').select('id, name, logo_url').in('id', teamsIds);
+                    const tA = teams?.find(t => t.id === rawMatch.team_a_id);
+                    const tB = teams?.find(t => t.id === rawMatch.team_b_id);
+                    if (tA) { a_name = tA.name; a_logo = tA.logo_url; }
+                    if (tB) { b_name = tB.name; b_logo = tB.logo_url; }
+                }
             }
 
             const normalizedMatch = {

@@ -101,14 +101,23 @@ const OverviewPage = () => {
         // 1. Fetch Teams
         const { data: coachTeams } = await supabase.from('teams').select('id, name, tournament_id').eq('coach_id', userId);
         
-        // 2. Fetch Players (Get IDs first, then their names from profiles to avoid join errors)
+        // 2. Fetch Real Authenticated Players
         const { data: coachPlayers } = await supabase.from('players').select('id').eq('coach_id', userId);
         let fetchedPlayers: any[] = [];
         
         if (coachPlayers && coachPlayers.length > 0) {
             const playerIds = coachPlayers.map(p => p.id);
             const { data: profiles } = await supabase.from('profiles').select('id, name').in('id', playerIds);
-            fetchedPlayers = profiles || [];
+            if (profiles) {
+                fetchedPlayers = profiles.map(p => ({ id: p.id, name: p.name, isShadow: false }));
+            }
+        }
+
+        // 3. Fetch Proxy / Shadow Players
+        const { data: shadowPlayers } = await supabase.from('shadow_profiles').select('id, name').eq('coach_id', userId);
+        if (shadowPlayers) {
+            const formattedShadows = shadowPlayers.map(sp => ({ id: sp.id, name: sp.name, isShadow: true }));
+            fetchedPlayers = [...fetchedPlayers, ...formattedShadows];
         }
 
         setRelatedData({ 
@@ -170,7 +179,7 @@ const OverviewPage = () => {
                 .select('id')
                 .eq('organizer_id', user.id)
                 .eq('name', 'Coach Demo Sandbox')
-                .maybeSingle(); // Safely returns null instead of throwing an error if 0 rows found
+                .maybeSingle();
 
             if (!demoTourney) {
                 const { data: newTourney, error: tErr } = await supabase.from('tournaments').insert({
@@ -196,15 +205,27 @@ const OverviewPage = () => {
                 round_number: 1,
                 round_name: 'Demo Match',
                 status: 'scheduled',
-                score_data: {} // Pre-initialize empty object to prevent frontend state crashes
+                score_data: {} 
             };
 
             if (isIndSport) {
-                // Assign the valid profile UUIDs directly to the match row
-                matchInsertData.player_a_id = demoPlayerA || user.id;
-                matchInsertData.player_b_id = demoPlayerB || user.id;
+                // Find out if competitor A is a shadow profile or standard profile
+                const selectedA = relatedData?.myPlayers?.find((p: any) => p.id === demoPlayerA);
+                if (selectedA?.isShadow) {
+                    matchInsertData.shadow_player_a_id = demoPlayerA;
+                } else {
+                    matchInsertData.player_a_id = demoPlayerA || user.id;
+                }
+
+                // Find out if competitor B is a shadow profile or standard profile
+                const selectedB = relatedData?.myPlayers?.find((p: any) => p.id === demoPlayerB);
+                if (selectedB?.isShadow) {
+                    matchInsertData.shadow_player_b_id = demoPlayerB;
+                } else {
+                    matchInsertData.player_b_id = demoPlayerB || user.id;
+                }
             } else {
-                // Team sports fallback: Use coach's actual registered team IDs
+                // Team sports fallback
                 const teamAId = relatedData?.myTeams?.[0]?.id || null;
                 const teamBId = relatedData?.myTeams?.[1]?.id || null;
                 

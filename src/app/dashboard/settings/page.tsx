@@ -11,7 +11,6 @@ export default function SettingsDashboard() {
   const sections = [
     { id: 'profile', label: 'Profile Settings', icon: User, desc: 'Manage your organization profile and public identity.' },
     { id: 'notifications', label: 'Notifications', icon: Bell, desc: 'Configure real-time alerts for match events.' },
-    { id: 'security', label: 'Security', icon: Shield, desc: 'Two-factor authentication and API access keys.' },
     { id: 'appearance', label: 'Appearance', icon: Palette, desc: 'Customize dashboard themes and branding colors.' },
   ]
 
@@ -21,6 +20,15 @@ export default function SettingsDashboard() {
         <h1 className="text-3xl font-headline font-bold text-foreground">SYSTEM CONFIG</h1>
         <p className="text-muted-foreground text-sm">Fine-tune your Martial Grid experience.</p>
       </div>
+
+      <GlassCard className="border-primary/10">
+           <div className="flex items-center justify-between">
+              <div>
+                 <Label className="text-base font-bold text-foreground">Coming Soon</Label>
+                 <p className="text-xs text-muted-foreground">All these features are coming soon.</p>
+              </div>
+           </div>
+        </GlassCard>
 
       <div className="grid gap-6">
         {sections.map((section) => (
@@ -38,15 +46,7 @@ export default function SettingsDashboard() {
           </GlassCard>
         ))}
 
-        <GlassCard className="border-primary/10">
-           <div className="flex items-center justify-between">
-              <div>
-                 <Label className="text-base font-bold text-foreground">Developer Mode</Label>
-                 <p className="text-xs text-muted-foreground">Enable advanced analytics and debug telemetry.</p>
-              </div>
-              <Switch />
-           </div>
-        </GlassCard>
+        
       </div>
     </div>
   )

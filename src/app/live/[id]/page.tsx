@@ -17,6 +17,8 @@ export default function PublicLiveMatch() {
         b_name: string;
         player_a_id?: string;
         player_b_id?: string;
+        shadow_player_a_id?: string;
+        shadow_player_b_id?: string;
         team_a_id?: string;
         team_b_id?: string;
         isInd: boolean;
@@ -44,16 +46,36 @@ export default function PublicLiveMatch() {
             const { data: mData } = await supabase.from('matches').select('*').eq('id', matchId).single();
             
             if (mData) {
-                const isInd = !!mData.player_a_id;
+                const isInd = !!(mData.player_a_id || mData.shadow_player_a_id);
                 let a_name = 'TBA', b_name = 'TBA';
                 
-                const targetAId = isInd ? mData.player_a_id : mData.team_a_id;
-                const targetBId = isInd ? mData.player_b_id : mData.team_b_id;
+                const targetAId = isInd ? (mData.player_a_id || mData.shadow_player_a_id) : mData.team_a_id;
+                const targetBId = isInd ? (mData.player_b_id || mData.shadow_player_b_id) : mData.team_b_id;
                 
                 if (isInd) {
-                    const { data: p } = await supabase.from('profiles').select('id, name').in('id', [mData.player_a_id, mData.player_b_id].filter(Boolean));
-                    a_name = p?.find(x => x.id === mData.player_a_id)?.name || 'TBA';
-                    b_name = p?.find(x => x.id === mData.player_b_id)?.name || 'TBA';
+                    // Try to fetch standard authenticated profiles
+                    const profileIds = [mData.player_a_id, mData.player_b_id].filter(Boolean);
+                    let standardProfiles: any[] = [];
+                    if (profileIds.length > 0) {
+                        const { data: p } = await supabase.from('profiles').select('id, name').in('id', profileIds);
+                        standardProfiles = p || [];
+                    }
+
+                    // Try to fetch custom shadow proxy profiles
+                    const shadowIds = [mData.shadow_player_a_id, mData.shadow_player_b_id].filter(Boolean);
+                    let shadowProfiles: any[] = [];
+                    if (shadowIds.length > 0) {
+                        const { data: s } = await supabase.from('shadow_profiles').select('id, name').in('id', shadowIds);
+                        shadowProfiles = s || [];
+                    }
+
+                    a_name = mData.player_a_id 
+                        ? (standardProfiles.find(x => x.id === mData.player_a_id)?.name || 'TBA')
+                        : (shadowProfiles.find(x => x.id === mData.shadow_player_a_id)?.name || 'TBA');
+
+                    b_name = mData.player_b_id 
+                        ? (standardProfiles.find(x => x.id === mData.player_b_id)?.name || 'TBA')
+                        : (shadowProfiles.find(x => x.id === mData.shadow_player_b_id)?.name || 'TBA');
                 } else {
                     const { data: t } = await supabase.from('teams').select('id, name').in('id', [mData.team_a_id, mData.team_b_id].filter(Boolean));
                     a_name = t?.find(x => x.id === mData.team_a_id)?.name || 'TBA';
@@ -65,6 +87,8 @@ export default function PublicLiveMatch() {
                     b_name,
                     player_a_id: mData.player_a_id,
                     player_b_id: mData.player_b_id,
+                    shadow_player_a_id: mData.shadow_player_a_id,
+                    shadow_player_b_id: mData.shadow_player_b_id,
                     team_a_id: mData.team_a_id,
                     team_b_id: mData.team_b_id,
                     isInd
@@ -134,9 +158,9 @@ export default function PublicLiveMatch() {
     if (loading) return <div className="h-screen flex items-center justify-center bg-black text-white"><Loader2 className="animate-spin w-10 h-10" /></div>;
     if (!metaData) return <div className="h-screen flex items-center justify-center bg-black text-white">Match structure not found.</div>;
 
-    // IDs based on mapping
-    const a_id = metaData.isInd ? metaData.player_a_id : metaData.team_a_id;
-    const b_id = metaData.isInd ? metaData.player_b_id : metaData.team_b_id;
+    // IDs based on mapping (supporting standard and proxy fields safely)
+    const a_id = metaData.isInd ? (metaData.player_a_id || metaData.shadow_player_a_id) : metaData.team_a_id;
+    const b_id = metaData.isInd ? (metaData.player_b_id || metaData.shadow_player_b_id) : metaData.team_b_id;
 
     // Derived Dynamic values from the polling loop
     const a_score = a_id ? (scoreData[a_id]?.score || 0) : 0;

@@ -1,15 +1,15 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import GlassCard from '@/components/glass/GlassCard'
 import { Button } from '@/components/ui/button'
-import { Pencil, Trophy, CalendarPlus, LogOut } from 'lucide-react'
+import { Pencil, Trophy, CalendarPlus, LogOut, Calendar, Activity } from 'lucide-react'
 import { motion } from 'framer-motion'
 import Link from 'next/link';
 import imageCompression from 'browser-image-compression';
 
-// Re-using the EditableField would be ideal
+// Helper component lived outside main component body
 const EditableField = ({ value, onSave, label }: { value: string, onSave: (newValue: string) => Promise<void>, label: string }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [currentValue, setCurrentValue] = useState(value);
@@ -47,15 +47,45 @@ export default function OrganizerProfile({ profile, setProfile }: { profile: any
   const [avatarUrl, setAvatarUrl] = useState(profile.avatar_url);
   const [uploading, setUploading] = useState(false);
 
+  // Tournament lists states
+  const [pastTournaments, setPastTournaments] = useState<any[]>([]);
+  const [liveTournaments, setLiveTournaments] = useState<any[]>([]);
+  const [loadingEvents, setLoadingEvents] = useState(true);
+
+  useEffect(() => {
+    const fetchOrganizerTournaments = async () => {
+      setLoadingEvents(true);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data: tourneyData } = await supabase
+        .from('tournaments')
+        .select('*')
+        .eq('organizer_id', user.id)
+        .order('start_date', { ascending: false });
+
+      if (tourneyData) {
+        const now = new Date();
+        const past = tourneyData.filter(t => new Date(t.end_date) < now);
+        const liveOrUpcoming = tourneyData.filter(t => new Date(t.end_date) >= now);
+
+        setPastTournaments(past);
+        setLiveTournaments(liveOrUpcoming);
+      }
+      setLoadingEvents(false);
+    };
+
+    fetchOrganizerTournaments();
+  }, []);
+
   const handleSave = async (field: string, value: any) => {
     const { data: { user } } = await supabase.auth.getUser();
     if (user) {
-      // Note: This saves to the 'profiles' table. You might want to save to 'organizers' for some fields.
       const { data, error } = await supabase.from('profiles').update({ [field]: value }).eq('id', user.id).select().single();
       if(error) {
         console.error(`Error updating ${field}:`, error);
       } else {
-        setProfile(data);
+        setProfile({ ...profile, ...data });
       }
     }
   }
@@ -80,9 +110,7 @@ export default function OrganizerProfile({ profile, setProfile }: { profile: any
 
       let { error: uploadError } = await supabase.storage.from('avatars').upload(filePath, compressedFile);
 
-      if (uploadError) {
-        throw uploadError;
-      }
+      if (uploadError) throw uploadError;
 
       const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(filePath);
       await handleSave('avatar_url', publicUrl);
@@ -99,6 +127,21 @@ export default function OrganizerProfile({ profile, setProfile }: { profile: any
     await supabase.auth.signOut();
     window.location.href = '/';
   }
+
+  const renderTournamentItem = (t: any) => (
+    <div key={t.id} className="p-4 bg-white/5 rounded-xl border border-white/10 hover:border-primary/40 transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div>
+        <h4 className="font-bold text-lg text-foreground">{t.name}</h4>
+        <div className="flex flex-wrap gap-3 mt-1 text-xs text-muted-foreground">
+          <span className="capitalize bg-white/10 px-2 py-0.5 rounded text-foreground font-semibold">{t.sport}</span>
+          <span className="flex items-center gap-1"><Calendar className="w-3.5 h-3.5 text-primary"/> {new Date(t.start_date).toLocaleDateString()}</span>
+        </div>
+      </div>
+      <Link href={`/organizer/manage-tournament/${t.id}`} className="shrink-0">
+        <Button variant="secondary" size="sm">Manage Console</Button>
+      </Link>
+    </div>
+  );
 
   return (
     <GlassCard className="w-full max-w-4xl mx-auto p-4 sm:p-8">
@@ -138,14 +181,38 @@ export default function OrganizerProfile({ profile, setProfile }: { profile: any
           </div>
       </div>
 
+      {/* DYNAMIC CURRENT/LIVE TOURNAMENTS SECTION */}
       <div className="mt-12">
-          <h2 className="text-2xl font-bold mb-4 border-b-2 border-primary/20 pb-2 flex items-center gap-2"><Trophy /> Past Tournaments</h2>
-          {/* List of past tournaments here */}
+          <h2 className="text-2xl font-bold mb-4 border-b-2 border-primary/20 pb-2 flex items-center gap-2">
+            <CalendarPlus /> Current & Upcoming Tournaments
+            <span className="bg-primary/20 text-primary text-xs px-2 py-0.5 rounded-full font-bold ml-2">{liveTournaments.length}</span>
+          </h2>
+          {loadingEvents ? (
+            <div className="text-sm text-muted-foreground flex gap-2 items-center py-2"><Activity className="w-4 h-4 animate-spin text-primary"/> Synchronizing records...</div>
+          ) : liveTournaments.length === 0 ? (
+            <p className="text-sm text-muted-foreground italic py-2">No active or upcoming scheduled events found.</p>
+          ) : (
+            <div className="grid grid-cols-1 gap-3 mt-4">
+              {liveTournaments.map(renderTournamentItem)}
+            </div>
+          )}
       </div>
-      
+
+      {/* DYNAMIC PAST TOURNAMENTS SECTION */}
       <div className="mt-12">
-          <h2 className="text-2xl font-bold mb-4 border-b-2 border-primary/20 pb-2 flex items-center gap-2"><CalendarPlus /> Live Tournaments</h2>
-          {/* List of current tournaments here */}
+          <h2 className="text-2xl font-bold mb-4 border-b-2 border-primary/20 pb-2 flex items-center gap-2">
+            <Trophy /> Past Tournaments
+            <span className="bg-white/10 text-muted-foreground text-xs px-2 py-0.5 rounded-full font-bold ml-2">{pastTournaments.length}</span>
+          </h2>
+          {loadingEvents ? (
+            <div className="text-sm text-muted-foreground flex gap-2 items-center py-2"><Activity className="w-4 h-4 animate-spin text-primary"/> Synchronizing records...</div>
+          ) : pastTournaments.length === 0 ? (
+            <p className="text-sm text-muted-foreground italic py-2">No historical events archived under this account.</p>
+          ) : (
+            <div className="grid grid-cols-1 gap-3 mt-4">
+              {pastTournaments.map(renderTournamentItem)}
+            </div>
+          )}
       </div>
 
       <div className="flex justify-between items-center mt-12">

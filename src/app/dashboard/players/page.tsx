@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Label } from '@/components/ui/label';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Search, UserPlus, Users, Loader2, X, Shield, Clock, AlertCircle, UserMinus, Send, CheckCircle2, XCircle, Edit2, Scale, CalendarDays, Activity } from 'lucide-react';
+import { Search, UserPlus, Users, Loader2, X, Shield, Clock, AlertCircle, UserMinus, Send, CheckCircle2, XCircle, Edit2, Scale, CalendarDays, Activity, Ghost } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useToast } from '@/hooks/use-toast';
 import Link from 'next/link';
@@ -30,10 +30,15 @@ export default function SquadManagementPage() {
 
     // Search & Recruit States
     const [isRecruitModalOpen, setIsRecruitModalOpen] = useState(false);
+    const [recruitMode, setRecruitMode] = useState<'search' | 'register'>('search');
     const [searchQuery, setSearchQuery] = useState('');
     const [searchResults, setSearchResults] = useState<any[]>([]);
     const [isSearching, setIsSearching] = useState(false);
     const [invitingId, setInvitingId] = useState<string | null>(null);
+
+    // Shadow Registration States
+    const [isRegistering, setIsRegistering] = useState(false);
+    const [regForm, setRegForm] = useState({ name: '', handle: '', gender: '', age: '', weight: '' });
 
     // Edit Player Stats States
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -66,34 +71,49 @@ export default function SquadManagementPage() {
         setCoachProfile(profile);
         setCoachSport(sport);
 
-        // 1. FETCH ROSTER WITH SMART DEMOGRAPHICS (Age/Gender from profiles, Weight from players)
-        const { data: rosterData, error: rosterError } = await supabase
+        // 1. FETCH REAL PLAYERS
+        const { data: rosterData } = await supabase
             .from('profiles')
             .select(`
                 id, name, avatar_url, city, age, gender,
                 players!players_id_fkey!inner(coach_id, weight_kg)
             `)
             .eq('players.coach_id', user.id);
+            
+        // 2. FETCH SHADOW PLAYERS
+        const { data: shadowData } = await supabase
+            .from('shadow_profiles')
+            .select('*')
+            .eq('coach_id', user.id);
 
-        if (rosterError) console.error("Roster Fetch Error:", rosterError);
+        // MERGE ROSTERS
+        let mergedRoster: any[] = [];
         
         if (rosterData) {
-            const formattedRoster = rosterData.map((p: any) => {
+            mergedRoster = [...mergedRoster, ...rosterData.map((p: any) => {
                 const playerData = Array.isArray(p.players) ? p.players[0] : p.players;
                 return {
                     id: p.id,
+                    isShadow: false,
                     profiles: { name: p.name, avatar_url: p.avatar_url, city: p.city },
-                    stats: {
-                        gender: p.gender,
-                        weight_kg: playerData?.weight_kg,
-                        age: p.age
-                    }
+                    stats: { gender: p.gender, weight_kg: playerData?.weight_kg, age: p.age }
                 };
-            });
-            setActivePlayers(formattedRoster);
+            })];
         }
 
-        // 2. FETCH INVITES
+        if (shadowData) {
+            mergedRoster = [...mergedRoster, ...shadowData.map((sp: any) => ({
+                id: sp.id,
+                isShadow: true,
+                handle: sp.unique_handle,
+                profiles: { name: sp.name, avatar_url: null, city: 'Local Proxy' },
+                stats: { gender: sp.gender, weight_kg: sp.weight_kg, age: sp.age }
+            }))];
+        }
+
+        setActivePlayers(mergedRoster);
+
+        // 3. FETCH INVITES
         const { data: invitesData } = await supabase
             .from('team_invitations')
             .select('*')
@@ -112,26 +132,21 @@ export default function SquadManagementPage() {
             
             if (pending.length > 0) {
                 const playerIds = pending.map(i => i.player_id);
-                const { data: profilesData } = await supabase
-                    .from('profiles')
-                    .select('id, name, avatar_url')
-                    .in('id', playerIds);
+                const { data: profilesData } = await supabase.from('profiles').select('id, name, avatar_url').in('id', playerIds);
                 
                 const enrichedPending = pending.map(inv => {
                     const matchedProfile = profilesData?.find(p => p.id === inv.player_id);
                     return { ...inv, profiles: matchedProfile || { name: 'Unknown Player' } };
                 });
-                
                 setPendingInvites(enrichedPending);
             } else {
                 setPendingInvites([]);
             }
         }
-
         setLoading(false);
     };
 
-    // --- RECRUITMENT ENGINE ---
+    // --- RECRUITMENT & SHADOW ENGINE ---
     const handleSearch = async (e: React.ChangeEvent<HTMLInputElement>) => {
         const query = e.target.value;
         setSearchQuery(query);
@@ -142,8 +157,7 @@ export default function SquadManagementPage() {
         }
 
         setIsSearching(true);
-        
-        const { data, error } = await supabase
+        const { data } = await supabase
             .from('profiles')
             .select(`
                 id, name, avatar_url, city, age, gender,
@@ -195,8 +209,6 @@ export default function SquadManagementPage() {
             toast({ title: "Offer Sent", description: `Invitation dispatched to ${playerName}.` });
             fetchRosterData(); 
             setIsRecruitModalOpen(false);
-            setSearchQuery('');
-            setSearchResults([]);
         } catch (error) {
             toast({ title: "Action Blocked", description: "Failed to send invitation.", variant: "destructive" });
         } finally {
@@ -204,15 +216,49 @@ export default function SquadManagementPage() {
         }
     };
 
-    const handleRemovePlayer = async (playerId: string) => {
-        if (!confirm("Are you sure you want to release this player from your squad?")) return;
-        const { error } = await supabase.from('players').update({ coach_id: null }).eq('id', playerId);
-        if (error) {
-            toast({ title: "Action Blocked", description: "Failed to release player.", variant: "destructive" });
+    const handleRegisterShadowPlayer = async () => {
+        if (!regForm.name || !regForm.handle) {
+            toast({ title: "Missing Fields", description: "Name and Unique ID are required.", variant: "destructive" });
             return;
         }
+
+        setIsRegistering(true);
+        // FIXED: Explicitly maps and saves the coach's sport column alongside proxy demographics
+        const { error } = await supabase.from('shadow_profiles').insert({
+            coach_id: currentUser.id,
+            name: regForm.name,
+            unique_handle: regForm.handle,
+            sport: coachSport, // <--- SAVES THE SPORT ACCORDING TO COACH SPORT CONSTRAINTS
+            gender: regForm.gender || null,
+            age: regForm.age ? parseInt(regForm.age) : null,
+            weight_kg: regForm.weight ? parseFloat(regForm.weight) : null
+        });
+
+        setIsRegistering(false);
+
+        if (error) {
+            console.error("Database Write Error Details:", error);
+            toast({ title: "Registration Failed", description: "That Unique ID might already be taken.", variant: "destructive" });
+        } else {
+            toast({ title: "Player Registered", description: `${regForm.name} has been added to your squad via Proxy.` });
+            setRegForm({ name: '', handle: '', gender: '', age: '', weight: '' });
+            setIsRecruitModalOpen(false);
+            fetchRosterData();
+        }
+    };
+
+    const handleRemovePlayer = async (player: any) => {
+        if (!confirm(`Are you sure you want to release ${player.profiles.name} from your squad?`)) return;
+        
+        if (player.isShadow) {
+            const { error } = await supabase.from('shadow_profiles').delete().eq('id', player.id);
+            if (error) toast({ title: "Error", description: "Failed to remove proxy player.", variant: "destructive" });
+        } else {
+            const { error } = await supabase.from('players').update({ coach_id: null }).eq('id', player.id);
+            if (error) toast({ title: "Error", description: "Failed to release player.", variant: "destructive" });
+        }
+        
         toast({ title: "Player Released", description: "They have been removed from your roster." });
-        setActivePlayers(prev => prev.filter(p => p.id !== playerId));
         fetchRosterData(); 
     };
 
@@ -237,26 +283,31 @@ export default function SquadManagementPage() {
         if (!editingPlayer) return;
         setIsSavingStats(true);
 
-        // Update Profiles Table (Age & Gender)
-        const { error: profileError } = await supabase.from('profiles').update({
-            gender: editForm.gender || null,
-            age: editForm.age ? parseInt(editForm.age) : null
-        }).eq('id', editingPlayer.id);
+        if (editingPlayer.isShadow) {
+            const { error } = await supabase.from('shadow_profiles').update({
+                gender: editForm.gender || null,
+                age: editForm.age ? parseInt(editForm.age) : null,
+                weight_kg: editForm.weight_kg ? parseFloat(editForm.weight_kg) : null
+            }).eq('id', editingPlayer.id);
+            
+            if (error) toast({ title: "Error", description: error.message, variant: "destructive" });
+        } else {
+            const { error: profileError } = await supabase.from('profiles').update({
+                gender: editForm.gender || null,
+                age: editForm.age ? parseInt(editForm.age) : null
+            }).eq('id', editingPlayer.id);
 
-        // Update Players Table (Weight)
-        const { error: playerError } = await supabase.from('players').update({
-            weight_kg: editForm.weight_kg ? parseFloat(editForm.weight_kg) : null
-        }).eq('id', editingPlayer.id);
+            const { error: playerError } = await supabase.from('players').update({
+                weight_kg: editForm.weight_kg ? parseFloat(editForm.weight_kg) : null
+            }).eq('id', editingPlayer.id);
+
+            if (profileError || playerError) toast({ title: "Error", description: "Failed to update stats.", variant: "destructive" });
+        }
 
         setIsSavingStats(false);
-
-        if (profileError || playerError) {
-            toast({ title: "Error Saving", description: profileError?.message || playerError?.message, variant: "destructive" });
-        } else {
-            toast({ title: "Stats Updated", description: `${editingPlayer.profiles.name}'s profile synced.` });
-            setIsEditModalOpen(false);
-            fetchRosterData(); 
-        }
+        toast({ title: "Stats Updated", description: `${editingPlayer.profiles.name}'s profile synced.` });
+        setIsEditModalOpen(false);
+        fetchRosterData(); 
     };
 
     if (loading) return <div className="flex justify-center items-center h-screen"><Loader2 className="w-12 h-12 animate-spin text-primary" /></div>;
@@ -267,13 +318,16 @@ export default function SquadManagementPage() {
             {/* EDIT STATS MODAL */}
             <AnimatePresence>
                 {isEditModalOpen && editingPlayer && (
-                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md p-4">
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center bg-white/60 backdrop-blur-md p-4">
                         <motion.div initial={{ scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 20 }} className="w-full max-w-md">
                             <GlassCard className="p-6 border-primary/30 shadow-[0_0_50px_rgba(var(--primary-rgb),0.1)]">
                                 <div className="flex justify-between items-center mb-6">
                                     <div>
                                         <h2 className="text-2xl font-bold">Update Demographics</h2>
-                                        <p className="text-sm text-primary font-bold mt-1">{editingPlayer.profiles.name}</p>
+                                        <p className="text-sm text-primary font-bold mt-1 flex items-center gap-2">
+                                            {editingPlayer.profiles.name} 
+                                            {editingPlayer.isShadow && <span className="bg-white/10 text-white text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-widest"><Ghost className="w-3 h-3 inline mr-1"/>Proxy</span>}
+                                        </p>
                                     </div>
                                     <Button variant="ghost" size="icon" onClick={() => setIsEditModalOpen(false)} className="rounded-full"><X className="w-5 h-5" /></Button>
                                 </div>
@@ -282,7 +336,7 @@ export default function SquadManagementPage() {
                                     <div className="space-y-2">
                                         <Label className="text-muted-foreground">Gender</Label>
                                         <Select onValueChange={(v) => setEditForm(prev => ({...prev, gender: v}))} value={editForm.gender}>
-                                            <SelectTrigger className="bg-black/40"><SelectValue placeholder="Select Gender" /></SelectTrigger>
+                                            <SelectTrigger className="bg-white/40"><SelectValue placeholder="Select Gender" /></SelectTrigger>
                                             <SelectContent>
                                                 <SelectItem value="Male">Male</SelectItem>
                                                 <SelectItem value="Female">Female</SelectItem>
@@ -294,14 +348,14 @@ export default function SquadManagementPage() {
                                         <Label className="text-muted-foreground">Weight (kg)</Label>
                                         <div className="relative">
                                             <Scale className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                                            <Input type="number" step="0.1" value={editForm.weight_kg} onChange={(e) => setEditForm(prev => ({...prev, weight_kg: e.target.value}))} className="pl-10 bg-black/40" placeholder="e.g. 65.5" />
+                                            <Input type="number" step="0.1" value={editForm.weight_kg} onChange={(e) => setEditForm(prev => ({...prev, weight_kg: e.target.value}))} className="pl-10 bg-white/40" placeholder="e.g. 65.5" />
                                         </div>
                                     </div>
                                     <div className="space-y-2">
                                         <Label className="text-muted-foreground">Age</Label>
                                         <div className="relative">
                                             <CalendarDays className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                                            <Input type="number" value={editForm.age} onChange={(e) => setEditForm(prev => ({...prev, age: e.target.value}))} className="pl-10 bg-black/40" placeholder="e.g. 24" />
+                                            <Input type="number" value={editForm.age} onChange={(e) => setEditForm(prev => ({...prev, age: e.target.value}))} className="pl-10 bg-white/40" placeholder="e.g. 24" />
                                         </div>
                                     </div>
                                 </div>
@@ -317,41 +371,105 @@ export default function SquadManagementPage() {
                 )}
             </AnimatePresence>
 
-            {/* RECRUITMENT MODAL */}
+            {/* RECRUITMENT MODAL (Search / Register Toggle) */}
             <AnimatePresence>
                 {isRecruitModalOpen && (
-                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md p-4">
+                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center bg-white/60 backdrop-blur-md p-4">
                         <motion.div initial={{ scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 20 }} className="w-full max-w-lg">
-                            <GlassCard className="p-6 border-primary/30 shadow-[0_0_50px_rgba(var(--primary-rgb),0.1)] overflow-hidden flex flex-col max-h-[80vh]">
-                                <div className="flex justify-between items-center mb-4">
-                                    <div><h2 className="text-2xl font-bold font-headline">Recruit Player</h2><p className="text-sm text-muted-foreground mt-1">Search the registry for athletes.</p></div>
+                            <GlassCard className="p-6 border-primary/30 shadow-[0_0_50px_rgba(var(--primary-rgb),0.1)] overflow-hidden flex flex-col max-h-[90vh]">
+                                <div className="flex justify-between items-center mb-6">
+                                    <h2 className="text-2xl font-bold font-headline">Add to Roster</h2>
                                     <Button variant="ghost" size="icon" onClick={() => setIsRecruitModalOpen(false)} className="rounded-full"><X className="w-5 h-5" /></Button>
                                 </div>
-                                <div className="mb-6 flex items-center"><span className="text-xs font-bold uppercase tracking-widest text-primary bg-primary/10 border border-primary/20 px-3 py-1 rounded-md">Filter: {coachSport} Only</span></div>
-                                <div className="relative mb-6 shrink-0"><Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" /><Input placeholder={`Search ${coachSport || ''} players...`} value={searchQuery} onChange={handleSearch} className="h-14 pl-12 bg-black/40 border-white/10 text-lg rounded-xl focus-visible:ring-primary" autoFocus /></div>
-                                <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-3">
-                                    {isSearching ? <div className="flex justify-center py-8"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div> : searchResults.length > 0 ? (
-                                        searchResults.map(player => (
-                                            <div key={player.id} className="p-4 bg-white/5 rounded-xl border border-white/10 hover:border-primary/50 transition-colors">
-                                                <div className="flex items-center justify-between mb-3">
-                                                    <div className="flex items-center gap-3 overflow-hidden">
-                                                        <Avatar className="w-10 h-10 border border-white/20"><AvatarImage src={player.avatar_url} /><AvatarFallback className="bg-primary/20 text-primary font-bold">{player.name.charAt(0)}</AvatarFallback></Avatar>
-                                                        <div className="overflow-hidden"><Link href={`/user/${player.id}`} target="_blank"><h4 className="font-bold text-sm truncate hover:text-primary transition-colors cursor-pointer">{player.name}</h4></Link><p className="text-[10px] text-muted-foreground truncate">{player.city || 'Location Unknown'}</p></div>
+                                
+                                {/* Toggle Tabs */}
+                                <div className="flex gap-2 mb-6 p-1 bg-white/40 rounded-xl border border-white/10 shrink-0">
+                                    <Button 
+                                        variant={recruitMode === 'search' ? 'default' : 'ghost'} 
+                                        onClick={() => setRecruitMode('search')} 
+                                        className="flex-1 rounded-lg"
+                                    >
+                                        <Search className="w-4 h-4 mr-2"/> Find Player
+                                    </Button>
+                                    <Button 
+                                        variant={recruitMode === 'register' ? 'default' : 'ghost'} 
+                                        onClick={() => setRecruitMode('register')} 
+                                        className="flex-1 rounded-lg"
+                                    >
+                                        <UserPlus className="w-4 h-4 mr-2"/> Proxy Register
+                                    </Button>
+                                </div>
+
+                                {recruitMode === 'search' ? (
+                                    <>
+                                        <div className="mb-6 flex items-center"><span className="text-xs font-bold uppercase tracking-widest text-primary bg-primary/10 border border-primary/20 px-3 py-1 rounded-md">Filter: {coachSport} Only</span></div>
+                                        <div className="relative mb-6 shrink-0"><Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-muted-foreground" /><Input placeholder={`Search ${coachSport || ''} players...`} value={searchQuery} onChange={handleSearch} className="h-14 pl-12 bg-white/40 border-white/10 text-lg rounded-xl focus-visible:ring-primary" autoFocus /></div>
+                                        <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-3">
+                                            {isSearching ? <div className="flex justify-center py-8"><Loader2 className="w-8 h-8 animate-spin text-primary" /></div> : searchResults.length > 0 ? (
+                                                searchResults.map(player => (
+                                                    <div key={player.id} className="p-4 bg-white/5 rounded-xl border border-white/10 hover:border-primary/50 transition-colors">
+                                                        <div className="flex items-center justify-between mb-3">
+                                                            <div className="flex items-center gap-3 overflow-hidden">
+                                                                <Avatar className="w-10 h-10 border border-white/20"><AvatarImage src={player.avatar_url} /><AvatarFallback className="bg-primary/20 text-primary font-bold">{player.name.charAt(0)}</AvatarFallback></Avatar>
+                                                                <div className="overflow-hidden"><Link href={`/user/${player.id}`} target="_blank"><h4 className="font-bold text-sm truncate hover:text-primary transition-colors cursor-pointer">{player.name}</h4></Link><p className="text-[10px] text-muted-foreground truncate">{player.city || 'Location Unknown'}</p></div>
+                                                            </div>
+                                                            <Button size="sm" onClick={() => handleSendInvite(player.id, player.name)} disabled={invitingId === player.id} className="shadow-[0_0_15px_rgba(var(--primary-rgb),0.3)] shrink-0 h-8">{invitingId === player.id ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Send Offer'}</Button>
+                                                        </div>
+                                                        <div className="flex items-center gap-3 pt-2 border-t border-white/5 text-[10px] uppercase font-bold tracking-widest text-muted-foreground">
+                                                            {player.stats?.gender && <span className="flex items-center gap-1"><Activity className="w-3 h-3 text-primary"/> {player.stats.gender}</span>}
+                                                            {player.stats?.weight_kg && <span className="flex items-center gap-1"><Scale className="w-3 h-3 text-primary"/> {player.stats.weight_kg}kg</span>}
+                                                            {player.stats?.age && <span className="flex items-center gap-1"><CalendarDays className="w-3 h-3 text-primary"/> Age {player.stats.age}</span>}
+                                                        </div>
                                                     </div>
-                                                    <Button size="sm" onClick={() => handleSendInvite(player.id, player.name)} disabled={invitingId === player.id} className="shadow-[0_0_15px_rgba(var(--primary-rgb),0.3)] shrink-0 h-8">{invitingId === player.id ? <Loader2 className="w-3 h-3 animate-spin" /> : 'Send Offer'}</Button>
+                                                ))
+                                            ) : searchQuery.length >= 3 ? (
+                                                <div className="text-center py-12 text-muted-foreground"><AlertCircle className="w-10 h-10 mx-auto mb-3 opacity-50" /><p>No {coachSport} players found matching "{searchQuery}".</p></div>
+                                            ) : <div className="text-center py-12 text-muted-foreground opacity-50"><Users className="w-12 h-12 mx-auto mb-3" /><p>Type at least 3 letters to search.</p></div>}
+                                        </div>
+                                    </>
+                                ) : (
+                                    <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-4">
+                                        <p className="text-xs text-muted-foreground mb-4">Create a proxy account for a player so they can be immediately added to matches. They can claim this profile later.</p>
+                                        <div className="space-y-4">
+                                            <div className="space-y-1">
+                                                <Label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Player Name *</Label>
+                                                <Input value={regForm.name} onChange={e => setRegForm({...regForm, name: e.target.value})} className="bg-white/40 h-12" placeholder="e.g., Rahul Kumar" />
+                                            </div>
+                                            <div className="space-y-1">
+                                                <Label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Unique ID (WA/IG Handle) *</Label>
+                                                <Input value={regForm.handle} onChange={e => setRegForm({...regForm, handle: e.target.value.toLowerCase().replace(/\s/g, '')})} className="bg-white/40 h-12 font-mono" placeholder="e.g., rahul_karate99" />
+                                            </div>
+                                            
+                                            <div className="grid grid-cols-2 gap-4">
+                                                <div className="space-y-1">
+                                                    <Label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Gender</Label>
+                                                    <Select onValueChange={(v) => setRegForm({...regForm, gender: v})} value={regForm.gender}>
+                                                        <SelectTrigger className="bg-white/40 h-12"><SelectValue placeholder="Select" /></SelectTrigger>
+                                                        <SelectContent>
+                                                            <SelectItem value="Male">Male</SelectItem>
+                                                            <SelectItem value="Female">Female</SelectItem>
+                                                            <SelectItem value="Other">Other</SelectItem>
+                                                        </SelectContent>
+                                                    </Select>
                                                 </div>
-                                                {/* Mini Stats Banner for Search Results */}
-                                                <div className="flex items-center gap-3 pt-2 border-t border-white/5 text-[10px] uppercase font-bold tracking-widest text-muted-foreground">
-                                                    {player.stats?.gender && <span className="flex items-center gap-1"><Activity className="w-3 h-3 text-primary"/> {player.stats.gender}</span>}
-                                                    {player.stats?.weight_kg && <span className="flex items-center gap-1"><Scale className="w-3 h-3 text-primary"/> {player.stats.weight_kg}kg</span>}
-                                                    {player.stats?.age && <span className="flex items-center gap-1"><CalendarDays className="w-3 h-3 text-primary"/> Age {player.stats.age}</span>}
+                                                <div className="space-y-1">
+                                                    <Label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Age</Label>
+                                                    <Input type="number" value={regForm.age} onChange={e => setRegForm({...regForm, age: e.target.value})} className="bg-white/40 h-12" placeholder="Age" />
                                                 </div>
                                             </div>
-                                        ))
-                                    ) : searchQuery.length >= 3 ? (
-                                        <div className="text-center py-12 text-muted-foreground"><AlertCircle className="w-10 h-10 mx-auto mb-3 opacity-50" /><p>No {coachSport} players found matching "{searchQuery}".</p></div>
-                                    ) : <div className="text-center py-12 text-muted-foreground opacity-50"><Users className="w-12 h-12 mx-auto mb-3" /><p>Type at least 3 letters to search.</p></div>}
-                                </div>
+                                            <div className="space-y-1">
+                                                <Label className="text-xs font-bold text-muted-foreground uppercase tracking-wider">Weight (kg)</Label>
+                                                <Input type="number" step="0.1" value={regForm.weight} onChange={e => setRegForm({...regForm, weight: e.target.value})} className="bg-white/40 h-12" placeholder="e.g., 65.5" />
+                                            </div>
+                                        </div>
+                                        <div className="mt-8 pt-4 border-t border-white/10 flex justify-end gap-3">
+                                            <Button variant="ghost" onClick={() => setIsRecruitModalOpen(false)}>Cancel</Button>
+                                            <Button onClick={handleRegisterShadowPlayer} disabled={isRegistering} className="shadow-[0_0_15px_rgba(var(--primary-rgb),0.4)]">
+                                                {isRegistering ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Shield className="w-4 h-4 mr-2" />} Create Proxy Profile
+                                            </Button>
+                                        </div>
+                                    </div>
+                                )}
                             </GlassCard>
                         </motion.div>
                     </motion.div>
@@ -366,7 +484,7 @@ export default function SquadManagementPage() {
                     </h1>
                     <p className="text-muted-foreground mt-2">Manage your active roster, update player physicals, and recruit new talent.</p>
                 </div>
-                <Button size="lg" onClick={() => setIsRecruitModalOpen(true)} className="w-full sm:w-auto shadow-[0_0_20px_rgba(var(--primary-rgb),0.3)] hover:shadow-[0_0_30px_rgba(var(--primary-rgb),0.5)]"><UserPlus className="w-5 h-5 mr-2" /> Recruit Player</Button>
+                <Button size="lg" onClick={() => setIsRecruitModalOpen(true)} className="w-full sm:w-auto shadow-[0_0_20px_rgba(var(--primary-rgb),0.3)] hover:shadow-[0_0_30px_rgba(var(--primary-rgb),0.5)]"><UserPlus className="w-5 h-5 mr-2" /> Add to Roster</Button>
             </div>
 
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -383,19 +501,26 @@ export default function SquadManagementPage() {
                                 <Users className="w-12 h-12 mx-auto text-muted-foreground mb-4 opacity-50" />
                                 <h3 className="text-xl font-bold mb-2">Your roster is empty</h3>
                                 <p className="text-muted-foreground mb-6 max-w-md mx-auto">You haven't signed any players yet. Use the recruit button to find athletes.</p>
-                                <Button variant="outline" onClick={() => setIsRecruitModalOpen(true)}>Find Players</Button>
+                                <Button variant="outline" onClick={() => setIsRecruitModalOpen(true)}>Add Players</Button>
                             </div>
                         ) : (
                             <div className="grid grid-cols-1 gap-4">
                                 {activePlayers.map((player) => (
                                     <motion.div key={player.id} layout initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} className="flex flex-col sm:flex-row sm:items-center justify-between p-4 bg-white/5 rounded-2xl border border-white/10 group hover:bg-white/10 transition-colors gap-4">
                                         <div className="flex items-center gap-4 overflow-hidden">
-                                            <Avatar className="w-14 h-14 border-2 border-primary/20 shadow-lg">
+                                            <Avatar className="w-14 h-14 border-2 border-primary/20 shadow-lg relative">
                                                 <AvatarImage src={player.profiles?.avatar_url} />
                                                 <AvatarFallback className="bg-primary/10 text-primary font-bold">{player.profiles?.name?.charAt(0)}</AvatarFallback>
                                             </Avatar>
                                             <div className="overflow-hidden">
-                                                <Link href={`/user/${player.id}`}><h4 className="font-bold text-lg truncate text-foreground hover:text-primary transition-colors cursor-pointer">{player.profiles?.name}</h4></Link>
+                                                <div className="flex items-center gap-2">
+                                                    {player.isShadow ? (
+                                                        <h4 className="font-bold text-lg truncate text-foreground cursor-default">{player.profiles?.name}</h4>
+                                                    ) : (
+                                                        <Link href={`/user/${player.id}`}><h4 className="font-bold text-lg truncate text-foreground hover:text-primary transition-colors cursor-pointer">{player.profiles?.name}</h4></Link>
+                                                    )}
+                                                    {player.isShadow && <span className="bg-white/10 text-muted-foreground text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-widest border border-white/5 flex items-center"><Ghost className="w-3 h-3 mr-1"/> Proxy</span>}
+                                                </div>
                                                 
                                                 {/* Demographics Display */}
                                                 <div className="flex flex-wrap items-center gap-2 mt-1 text-[10px] uppercase font-bold tracking-widest text-muted-foreground">
@@ -408,6 +533,7 @@ export default function SquadManagementPage() {
                                                     <span className={`px-2 py-0.5 rounded-sm ${player.stats.age ? 'bg-white/10 text-foreground' : 'border border-dashed border-white/20'}`}>
                                                         {player.stats.age ? `Age ${player.stats.age}` : 'No Age'}
                                                     </span>
+                                                    {player.isShadow && <span className="text-primary/70 ml-2 border-l border-white/10 pl-2">ID: {player.handle}</span>}
                                                 </div>
                                             </div>
                                         </div>
@@ -415,7 +541,7 @@ export default function SquadManagementPage() {
                                             <Button variant="secondary" size="sm" onClick={() => openEditModal(player)} className="h-8 text-xs bg-white/10 hover:bg-white/20">
                                                 <Edit2 className="w-3 h-3 mr-1.5" /> Edit Stats
                                             </Button>
-                                            <Button variant="ghost" size="icon" onClick={() => handleRemovePlayer(player.id)} className="h-8 w-8 text-muted-foreground hover:text-red-400 hover:bg-red-500/10" title="Release Player">
+                                            <Button variant="ghost" size="icon" onClick={() => handleRemovePlayer(player)} className="h-8 w-8 text-muted-foreground hover:text-red-400 hover:bg-red-500/10" title="Release Player">
                                                 <UserMinus className="w-4 h-4" />
                                             </Button>
                                         </div>
