@@ -35,6 +35,11 @@ const ManageTournamentPage = () => {
     const [matches, setMatches] = useState<any[]>([]);
     const [matrixRoster, setMatrixRoster] = useState<any[]>([]);
     
+    // --- HYBRID PROXY REGISTRATION STATES ---
+    const [showProxyModal, setShowProxyModal] = useState(false);
+    const [proxyForm, setProxyForm] = useState({ name: '', handle_or_coach: '', category: 'Open Class' });
+    const [isRegisteringProxy, setIsRegisteringProxy] = useState(false);
+    
     // Invite System States
     const [availableCoaches, setAvailableCoaches] = useState<any[]>([]);
     const [pendingInvites, setPendingInvites] = useState<string[]>([]);
@@ -114,9 +119,27 @@ const ManageTournamentPage = () => {
                         name: profile?.name || 'Unknown Athlete',
                         logo_url: profile?.avatar_url,
                         status: r.status,
-                        type: 'individual'
+                        type: 'individual',
+                        isShadow: false
                     };
                 }));
+            }
+
+            // Fetch Hybrid Shadow Profiles (Offline Proxies)
+            const { data: shadows } = await supabase
+                .from('shadow_profiles')
+                .select('*')
+                .eq('tournament_id', tournamentId);
+                
+            if (shadows) {
+                combined.push(...shadows.map(s => ({
+                    id: s.id,
+                    name: s.name,
+                    logo_url: null,
+                    status: 'approved',
+                    type: 'individual',
+                    isShadow: true
+                })));
             }
         } else {
             // FOR TEAM SPORTS: Fetch Approved Teams
@@ -126,7 +149,7 @@ const ManageTournamentPage = () => {
                 .eq('tournament_id', tournamentId)
                 .eq('status', 'approved');
 
-            if (teamData) combined.push(...teamData.map(t => ({ ...t, type: 'team' })));
+            if (teamData) combined.push(...teamData.map(t => ({ ...t, type: 'team', isShadow: false })));
 
             // Fetch Independent Free Agents
             const { data: indData } = await supabase
@@ -150,9 +173,27 @@ const ManageTournamentPage = () => {
                         name: profile?.name || 'Unknown Athlete',
                         logo_url: profile?.avatar_url,
                         status: r.status,
-                        type: 'individual'
+                        type: 'individual',
+                        isShadow: false
                     };
                 }));
+            }
+
+            // Fetch Hybrid Shadow Teams (Offline Proxies)
+            const { data: shadowTeams } = await supabase
+                .from('shadow_teams')
+                .select('*')
+                .eq('tournament_id', tournamentId);
+                
+            if (shadowTeams) {
+                combined.push(...shadowTeams.map(s => ({
+                    id: s.id,
+                    name: s.name,
+                    logo_url: null,
+                    status: 'approved',
+                    type: 'team',
+                    isShadow: true
+                })));
             }
         }
 
@@ -174,21 +215,21 @@ const ManageTournamentPage = () => {
 
     const fetchMatrixRoster = useCallback(async () => {
         setMatrixLoading(true);
-        const { data, error } = await supabase
+        
+        let combinedMatrix: any[] = [];
+
+        // 1. Fetch Real Registered Roster
+        const { data: rosterData, error } = await supabase
             .from('tournament_roster')
             .select('*')
             .eq('tournament_id', tournamentId)
             .neq('status', 'withdrawn');
 
-        if (error) {
-            console.error("Matrix Roster Fetch Error:", error);
-            setMatrixLoading(false);
-            return;
-        }
+        if (error) console.error("Matrix Roster Fetch Error:", error);
 
-        if (data && data.length > 0) {
-            const playerIds = [...new Set(data.map(r => r.player_id))];
-            const coachIds = [...new Set(data.map(r => r.coach_id).filter(Boolean))];
+        if (rosterData && rosterData.length > 0) {
+            const playerIds = [...new Set(rosterData.map(r => r.player_id))];
+            const coachIds = [...new Set(rosterData.map(r => r.coach_id).filter(Boolean))];
             
             const { data: profiles } = await supabase.from('profiles').select('id, name, avatar_url').in('id', playerIds);
             
@@ -198,16 +239,54 @@ const ManageTournamentPage = () => {
                 coachProfiles = cp || [];
             }
 
-            const enriched = data.map(r => ({
+            const enriched = rosterData.map(r => ({
                 ...r,
+                isShadow: false,
                 profiles: profiles?.find(p => p.id === r.player_id) || { name: 'Unknown Athlete' },
-                coach_name: coachProfiles.find(c => c.id === r.coach_id)?.name || 'Independent Entry'
+                coach_name: coachProfiles.find(c => c.id === r.coach_id)?.name || 'Independent Entry',
+                // Pre-resolve category strings for the real app users
+                resolved_category: Object.values(r.selected_categories || {}).join(' / ') || 'Open Class'
             }));
-            
-            setMatrixRoster(enriched);
-        } else {
-            setMatrixRoster([]);
+            combinedMatrix.push(...enriched);
         }
+
+        // 2. Fetch Shadow Profiles (Offline Individuals)
+        const { data: shadowProfiles } = await supabase
+            .from('shadow_profiles')
+            .select('*')
+            .eq('tournament_id', tournamentId);
+            
+        if (shadowProfiles && shadowProfiles.length > 0) {
+            const enrichedShadows = shadowProfiles.map(s => ({
+                id: s.id,
+                isShadow: true,
+                status: 'approved', // Offline proxies are inherently approved by the organizer
+                profiles: { name: s.name, avatar_url: null },
+                coach_name: `Proxy ID: ${s.unique_handle || 'Offline Entry'}`,
+                resolved_category: s.category || 'Open Class'
+            }));
+            combinedMatrix.push(...enrichedShadows);
+        }
+
+        // 3. Fetch Shadow Teams (Offline Teams)
+        const { data: shadowTeams } = await supabase
+            .from('shadow_teams')
+            .select('*')
+            .eq('tournament_id', tournamentId);
+
+        if (shadowTeams && shadowTeams.length > 0) {
+            const enrichedShadowTeams = shadowTeams.map(s => ({
+                id: s.id,
+                isShadow: true,
+                status: 'approved',
+                profiles: { name: s.name, avatar_url: null },
+                coach_name: s.coach_name || 'Offline Team',
+                resolved_category: s.category || 'Open Class'
+            }));
+            combinedMatrix.push(...enrichedShadowTeams);
+        }
+
+        setMatrixRoster(combinedMatrix);
         setMatrixLoading(false);
     }, [tournamentId]);
 
@@ -410,6 +489,28 @@ const ManageTournamentPage = () => {
         setSaving(false);
     };
 
+    const handleRegisterProxy = async () => {
+        if (!proxyForm.name.trim()) return showToast("Name is required.", "error");
+        setIsRegisteringProxy(true);
+        const { data: { user } } = await supabase.auth.getUser();
+
+        if (isIndividualSport) {
+            const { error } = await supabase.from('shadow_profiles').insert({
+                coach_id: user?.id, // Organizer acts as coach to satisfy RLS safely
+                tournament_id: tournamentId, name: proxyForm.name, unique_handle: proxyForm.handle_or_coach || `proxy_${Date.now()}`, category: proxyForm.category, sport: tournament.sport
+            });
+            if (error) showToast(error.message, "error"); else { showToast("Offline Athlete Added", "success"); setShowProxyModal(false); }
+        } else {
+            const { error } = await supabase.from('shadow_teams').insert({
+                organizer_id: user?.id, tournament_id: tournamentId, name: proxyForm.name, coach_name: proxyForm.handle_or_coach, category: proxyForm.category
+            });
+            if (error) showToast(error.message, "error"); else { showToast("Offline Team Added", "success"); setShowProxyModal(false); }
+        }
+        setIsRegisteringProxy(false);
+        fetchParticipants();
+        fetchMatrixRoster();
+    };
+    
     // --- RENDER BLOCKERS ---
     if (loading) return <DashboardLayout><div className="flex justify-center items-center h-screen"><Loader2 className="w-12 h-12 animate-spin text-primary" /></div></DashboardLayout>;
     if (!tournament) return <DashboardLayout><div className="flex justify-center items-center h-screen text-xl font-bold">Tournament not found.</div></DashboardLayout>;
@@ -423,7 +524,8 @@ const ManageTournamentPage = () => {
     const participantLabel = isIndividualSport ? 'Players' : 'Teams';
 
     const groupedMatrix = matrixRoster.reduce((acc, roster) => {
-        const catString = Object.values(roster.selected_categories || {}).join(' / ') || 'Open Class';
+        // Use the pre-resolved category string, defaulting to Open Class if missing
+        const catString = roster.resolved_category || 'Open Class';
         if (!acc[catString]) acc[catString] = [];
         acc[catString].push(roster);
         return acc;
@@ -559,7 +661,7 @@ const ManageTournamentPage = () => {
                     )}
 
                     {itemToRemove && (
-                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center bg-white/60 backdrop-blur-sm p-4">
                             <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}>
                                 <GlassCard className="p-8 max-w-md w-full border-red-500/30 shadow-[0_0_40px_rgba(239,68,68,0.15)] text-center relative overflow-hidden">
                                     <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full h-full bg-red-500/5 blur-[80px] pointer-events-none" />
@@ -578,7 +680,7 @@ const ManageTournamentPage = () => {
                     )}
 
                     {rejectingRosterItem && (
-                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center bg-white/60 backdrop-blur-sm p-4">
                             <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}>
                                 <GlassCard className="p-8 max-w-lg w-full border-red-500/30 shadow-[0_0_40px_rgba(239,68,68,0.15)] relative overflow-hidden">
                                     <div className="flex justify-between items-center mb-6">
@@ -685,7 +787,6 @@ const ManageTournamentPage = () => {
                                                 <SelectContent>
                                                     <SelectItem value="open">Open / Announcement</SelectItem>
                                                     <SelectItem value="invite">Invite Only</SelectItem>
-                                                    <SelectItem value="final">Final / Closed</SelectItem>
                                                 </SelectContent>
                                             </Select>
                                         </div>
@@ -844,6 +945,9 @@ const ManageTournamentPage = () => {
                                     
                                     {!isDeadlinePassed ? (
                                         <div className="flex gap-2">
+                                            <Button variant="outline" className="bg-white/5" onClick={() => setShowProxyModal(true)}>
+                                                <Plus className="w-4 h-4 mr-2"/> Add Offline Entry
+                                            </Button>
                                             {/* Hide Invite button for completely individual sports where teams don't exist */}
                                             {!isIndividualSport && (
                                                 <Button variant={showInviteSection ? "secondary" : "default"} onClick={() => setShowInviteSection(!showInviteSection)}>
@@ -936,6 +1040,49 @@ const ManageTournamentPage = () => {
                                                 {availableCoaches.length === 0 && <p className="text-muted-foreground text-sm col-span-full">No available coaches found for this sport.</p>}
                                             </div>
                                         </GlassCard>
+                                    </motion.div>
+                                )}
+                                {showProxyModal && (
+                                    <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center bg-white/60 backdrop-blur-sm p-4">
+                                        <motion.div initial={{ scale: 0.95 }} animate={{ scale: 1 }} className="w-full max-w-md">
+                                            <GlassCard className="p-6">
+                                                <div className="flex justify-between items-center mb-6">
+                                                    <h2 className="text-xl font-bold flex items-center gap-2"><UserPlus className="w-5 h-5 text-primary"/> Add Offline Entry</h2>
+                                                    <Button variant="ghost" size="icon" onClick={() => setShowProxyModal(false)}><X className="w-4 h-4"/></Button>
+                                                </div>
+                                                <div className="space-y-4 mb-6">
+                                                    <div className="space-y-2">
+                                                        <Label>{isIndividualSport ? 'Athlete Name' : 'Team Name'} *</Label>
+                                                        <Input value={proxyForm.name} onChange={e => setProxyForm({...proxyForm, name: e.target.value})} className="bg-white/40 h-12" placeholder="e.g. John Doe" />
+                                                    </div>
+                                                    <div className="space-y-2">
+                                                        <Label>{isIndividualSport ? 'Unique ID (Phone/Handle)' : 'Coach Name'}</Label>
+                                                        <Input value={proxyForm.handle_or_coach} onChange={e => setProxyForm({...proxyForm, handle_or_coach: e.target.value})} className="bg-white/40 h-12" placeholder="Optional" />
+                                                    </div>
+                                                    <div className="space-y-2">
+                                                        <Label>Registration Category</Label>
+                                                        <Select value={proxyForm.category} onValueChange={v => setProxyForm({...proxyForm, category: v})}>
+                                                            <SelectTrigger className="bg-white/40 h-12"><SelectValue placeholder="Select Category" /></SelectTrigger>
+                                                            <SelectContent>
+                                                                <SelectItem value="Open Class">Open Class</SelectItem>
+                                                                {getCategories().flatMap((c: any) => 
+                                                                    (c.options && c.options.length > 0) 
+                                                                        ? c.options.map((opt: string) => (
+                                                                            <SelectItem key={`${c.id}-${opt}`} value={`${c.name} - ${opt}`}>
+                                                                                {c.name} - {opt}
+                                                                            </SelectItem>
+                                                                          ))
+                                                                        : [<SelectItem key={c.id} value={c.name}>{c.name}</SelectItem>]
+                                                                )}                                                            
+                                                            </SelectContent>
+                                                        </Select>
+                                                    </div>
+                                                </div>
+                                                <Button className="w-full h-12 font-bold" onClick={handleRegisterProxy} disabled={isRegisteringProxy}>
+                                                    {isRegisteringProxy ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <CheckCircle2 className="w-4 h-4 mr-2"/>} Save Entry
+                                                </Button>
+                                            </GlassCard>
+                                        </motion.div>
                                     </motion.div>
                                 )}
                             </AnimatePresence>

@@ -563,7 +563,6 @@ export default function CreateTournamentPage() {
                                     <SelectContent>
                                         <SelectItem value="open">Open / Announcement (Anyone can register or view)</SelectItem>
                                         <SelectItem value="invite">Invite Only (You invite specific coaches/teams)</SelectItem>
-                                        <SelectItem value="final">Final Tournament (Teams ready, go straight to Bracketing)</SelectItem>
                                     </SelectContent>
                                 </Select>
 
@@ -658,7 +657,7 @@ export default function CreateTournamentPage() {
                                 {renderSportRules()}
 
                                 {/* --- NEW DYNAMIC CATEGORY BUILDER --- */}
-                                <div className="mt-12 space-y-4 bg-black/20 p-6 rounded-2xl border border-white/5">
+                                <div className="mt-12 space-y-4 bg-white/20 p-6 rounded-2xl border border-white/5">
                                     <div className="flex items-center justify-between border-b border-white/10 pb-4">
                                         <div>
                                             <h3 className="text-xl font-bold">Registration Categories</h3>
@@ -678,7 +677,7 @@ export default function CreateTournamentPage() {
                                                         placeholder="e.g., Weight Class, Gender, Belt" 
                                                         value={cat.name} 
                                                         onChange={e => handleCategoryNameChange(cat.id, e.target.value)} 
-                                                        className="bg-black/40 border-white/10 h-12 font-bold" 
+                                                        className="bg-white/40 border-black/10 h-12 font-bold" 
                                                     />
                                                 </div>
                                                 <Button 
@@ -704,7 +703,7 @@ export default function CreateTournamentPage() {
                                                                 handleAddCategoryOption(cat.id);
                                                             }
                                                         }}
-                                                        className="bg-black/40 border-white/10"
+                                                        className="bg-white/40 border-black/10"
                                                     />
                                                     <Button variant="secondary" onClick={() => handleAddCategoryOption(cat.id)} className="shrink-0 bg-primary/20 text-primary hover:bg-primary/30">
                                                         <Plus className="w-5 h-5" />

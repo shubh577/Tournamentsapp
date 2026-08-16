@@ -61,15 +61,18 @@ export default function BracketsPage() {
                     const profile = profiles?.find(p => p.id === r.player_id);
                     const catString = Object.values(r.selected_categories || {}).join(' / ') || 'Open Class';
                     uniqueCategories.add(catString);
-                    combined.push({ id: r.player_id, name: profile?.name || 'Unknown Athlete', logo_url: profile?.avatar_url, category: catString, isIndividual: true });
+                    combined.push({ id: r.player_id, name: profile?.name || 'Unknown Athlete', logo_url: profile?.avatar_url, category: catString, isIndividual: true, isShadow: false });
                 });
             }
+            // Add Shadow Profiles
+            const { data: shadows } = await supabase.from('shadow_profiles').select('*').eq('tournament_id', tournamentId);
+            if (shadows) shadows.forEach(s => { uniqueCategories.add(s.category || 'Open Class'); combined.push({ id: s.id, name: s.name, logo_url: null, category: s.category || 'Open Class', isIndividual: true, isShadow: true }); });
         } else {
             const { data: teamData } = await supabase.from('teams').select('*').eq('tournament_id', tournamentId).eq('status', 'approved');
-            if (teamData) {
-                uniqueCategories.add('Open Class');
-                teamData.forEach(t => combined.push({ id: t.id, name: t.name, logo_url: t.logo_url, category: 'Open Class', isIndividual: false }));
-            }
+            if (teamData) teamData.forEach(t => { uniqueCategories.add('Open Class'); combined.push({ id: t.id, name: t.name, logo_url: t.logo_url, category: 'Open Class', isIndividual: false, isShadow: false }); });
+            // Add Shadow Teams
+            const { data: shadows } = await supabase.from('shadow_teams').select('*').eq('tournament_id', tournamentId);
+            if (shadows) shadows.forEach(s => { uniqueCategories.add(s.category || 'Open Class'); combined.push({ id: s.id, name: s.name, logo_url: null, category: s.category || 'Open Class', isIndividual: false, isShadow: true }); });
         }
 
         setParticipants(combined);
@@ -87,7 +90,6 @@ export default function BracketsPage() {
             .select('*')
             .eq('tournament_id', tournamentId);
             
-    
         if (error) {
             console.error('Error fetching matches:', error);
             return;
@@ -95,13 +97,12 @@ export default function BracketsPage() {
     
         if (!matchData) return;
     
-        // Fetch team data separately instead of relying on FK joins
+        // Fetch BOTH regular and shadow team data
         const teamIds = [
-            ...new Set(
-                matchData
-                    .flatMap(m => [m.team_a_id, m.team_b_id])
-                    .filter(Boolean)
-            )
+            ...new Set(matchData.flatMap(m => [m.team_a_id, m.team_b_id]).filter(Boolean))
+        ];
+        const shadowTeamIds = [
+            ...new Set(matchData.flatMap(m => [m.shadow_team_a_id, m.shadow_team_b_id]).filter(Boolean))
         ];
     
         let teamsMap = new Map();
@@ -112,19 +113,22 @@ export default function BracketsPage() {
                 .select('id, name, logo_url')
                 .in('id', teamIds);
     
-            teamsMap = new Map(
-                (teams || []).map(team => [team.id, team])
-            );
+            (teams || []).forEach(team => teamsMap.set(team.id, team));
+        }
+
+        if (shadowTeamIds.length > 0) {
+            const { data: shadowTeams } = await supabase
+                .from('shadow_teams')
+                .select('id, name')
+                .in('id', shadowTeamIds);
+                
+            // Offline/Shadow teams don't have uploaded logos yet, so we pass null safely
+            (shadowTeams || []).forEach(team => teamsMap.set(team.id, { ...team, logo_url: null }));
         }
     
         matchData.forEach(match => {
-            match.team_a = match.team_a_id
-                ? teamsMap.get(match.team_a_id) || null
-                : null;
-    
-            match.team_b = match.team_b_id
-                ? teamsMap.get(match.team_b_id) || null
-                : null;
+            match.team_a = teamsMap.get(match.team_a_id) || teamsMap.get(match.shadow_team_a_id) || null;
+            match.team_b = teamsMap.get(match.team_b_id) || teamsMap.get(match.shadow_team_b_id) || null;
         });
     
         const isIndSport = INDIVIDUAL_SPORTS.includes(
@@ -133,42 +137,41 @@ export default function BracketsPage() {
     
         if (isIndSport) {
             const matchPlayerIds = new Set<string>();
+            const matchShadowIds = new Set<string>();
     
             matchData.forEach(m => {
                 if (m.player_a_id) matchPlayerIds.add(m.player_a_id);
                 if (m.player_b_id) matchPlayerIds.add(m.player_b_id);
+                if (m.shadow_player_a_id) matchShadowIds.add(m.shadow_player_a_id);
+                if (m.shadow_player_b_id) matchShadowIds.add(m.shadow_player_b_id);
             });
-    
+            
+            let profilesMap = new Map();
+
+            // Fetch regular authenticated profiles
             if (matchPlayerIds.size > 0) {
                 const { data: matchProfiles } = await supabase
                     .from('profiles')
                     .select('id, name, avatar_url')
                     .in('id', Array.from(matchPlayerIds));
     
-                matchData.forEach(m => {
-                    const pA = matchProfiles?.find(
-                        p => p.id === m.player_a_id
-                    );
-    
-                    const pB = matchProfiles?.find(
-                        p => p.id === m.player_b_id
-                    );
-    
-                    m.player_a = pA
-                        ? {
-                              name: pA.name,
-                              avatar_url: pA.avatar_url,
-                          }
-                        : null;
-    
-                    m.player_b = pB
-                        ? {
-                              name: pB.name,
-                              avatar_url: pB.avatar_url,
-                          }
-                        : null;
-                });
+                (matchProfiles || []).forEach(p => profilesMap.set(p.id, p));
             }
+            
+            // Fetch hybrid offline shadow profiles
+            if (matchShadowIds.size > 0) {
+                const { data: shadowProfiles } = await supabase
+                    .from('shadow_profiles')
+                    .select('id, name')
+                    .in('id', Array.from(matchShadowIds));
+                    
+                (shadowProfiles || []).forEach(p => profilesMap.set(p.id, { ...p, avatar_url: null }));
+            }
+    
+            matchData.forEach(m => {
+                m.player_a = profilesMap.get(m.player_a_id) || profilesMap.get(m.shadow_player_a_id) || null;
+                m.player_b = profilesMap.get(m.player_b_id) || profilesMap.get(m.shadow_player_b_id) || null;
+            });
         }
     
         setMatches(matchData);
@@ -237,29 +240,45 @@ export default function BracketsPage() {
     };
 
     // --- CLICK TO ASSIGN LOGIC ---
-    const handleAssignPlayer = async (entityId: string) => {
+    const handleAssignPlayer = async (entityId: string, isShadow: boolean) => {
         if (!assignSlot) return;
         setSaving(true);
-
         const { matchId, slot, isInd } = assignSlot;
-        const column = isInd ? (slot === 'a' ? 'player_a_id' : 'player_b_id') : (slot === 'a' ? 'team_a_id' : 'team_b_id');
-
-        const { error } = await supabase.from('matches').update({ [column]: entityId }).eq('id', matchId);
-        setSaving(false);
-
-        if (!error) {
-            toast({ title: "Slot Filled", description: "Participant assigned to match." });
-            setAssignSlot(null);
-            fetchMatches();
+        
+        // Clear both regular and shadow columns to prevent ghost data
+        const updates: any = {};
+        if (isInd) {
+            updates[slot === 'a' ? 'player_a_id' : 'player_b_id'] = null;
+            updates[slot === 'a' ? 'shadow_player_a_id' : 'shadow_player_b_id'] = null;
         } else {
-            toast({ title: "Error", description: "Failed to assign participant.", variant: "destructive" });
+            updates[slot === 'a' ? 'team_a_id' : 'team_b_id'] = null;
+            updates[slot === 'a' ? 'shadow_team_a_id' : 'shadow_team_b_id'] = null;
         }
+
+        // Apply to the specific target column
+        const column = isInd 
+            ? (slot === 'a' ? (isShadow ? 'shadow_player_a_id' : 'player_a_id') : (isShadow ? 'shadow_player_b_id' : 'player_b_id'))
+            : (slot === 'a' ? (isShadow ? 'shadow_team_a_id' : 'team_a_id') : (isShadow ? 'shadow_team_b_id' : 'team_b_id'));
+        
+        updates[column] = entityId;
+
+        const { error } = await supabase.from('matches').update(updates).eq('id', matchId);
+        setSaving(false);
+        if (!error) { toast({ title: "Slot Filled", description: "Participant assigned to match." }); setAssignSlot(null); fetchMatches(); }
+        else toast({ title: "Error", description: "Failed to assign participant.", variant: "destructive" });
     };
 
     const handleClearSlot = async (matchId: string, slot: 'a' | 'b', isInd: boolean) => {
         setSaving(true);
-        const column = isInd ? (slot === 'a' ? 'player_a_id' : 'player_b_id') : (slot === 'a' ? 'team_a_id' : 'team_b_id');
-        await supabase.from('matches').update({ [column]: null }).eq('id', matchId);
+        const updates: any = {};
+        if (isInd) {
+            updates[slot === 'a' ? 'player_a_id' : 'player_b_id'] = null;
+            updates[slot === 'a' ? 'shadow_player_a_id' : 'shadow_player_b_id'] = null;
+        } else {
+            updates[slot === 'a' ? 'team_a_id' : 'team_b_id'] = null;
+            updates[slot === 'a' ? 'shadow_team_a_id' : 'shadow_team_b_id'] = null;
+        }
+        await supabase.from('matches').update(updates).eq('id', matchId);
         setSaving(false);
         fetchMatches();
     };
@@ -298,7 +317,16 @@ export default function BracketsPage() {
         if (!assignSlot) return [];
         const usedIdsInRound = categoryMatches
             .filter(m => m.round_number === assignSlot.roundNum && m.section === assignSlot.section)
-            .flatMap(m => [m.player_a_id, m.player_b_id, m.team_a_id, m.team_b_id])
+            .flatMap(m => [
+                m.player_a_id, 
+                m.player_b_id, 
+                m.team_a_id, 
+                m.team_b_id,
+                m.shadow_player_a_id,
+                m.shadow_player_b_id,
+                m.shadow_team_a_id,
+                m.shadow_team_b_id
+            ])            
             .filter(Boolean);
         return categoryParticipants.filter(p => !usedIdsInRound.includes(p.id));
     };
@@ -311,8 +339,9 @@ export default function BracketsPage() {
     // Card Renderer extracted to avoid massive code duplication
     const renderMatchCard = (rawMatch: any, roundNum: string, section: string, hasNextRound: boolean = false) => {
         const isInd = isIndSport;
-        const a_id = isInd ? rawMatch.player_a_id : rawMatch.team_a_id;
-        const b_id = isInd ? rawMatch.player_b_id : rawMatch.team_b_id;
+        const a_id = isInd ? (rawMatch.player_a_id || rawMatch.shadow_player_a_id) : (rawMatch.team_a_id || rawMatch.shadow_team_a_id);
+        const b_id = isInd ? (rawMatch.player_b_id || rawMatch.shadow_player_b_id) : (rawMatch.team_b_id || rawMatch.shadow_team_b_id);
+
         const a_name = rawMatch.player_a?.name || rawMatch.team_a?.name;
         const b_name = rawMatch.player_b?.name || rawMatch.team_b?.name;
         const a_logo = rawMatch.player_a?.avatar_url || rawMatch.team_a?.logo_url;
@@ -350,12 +379,12 @@ export default function BracketsPage() {
                         {/* SLOT A */}
                         <div 
                             onClick={() => setAssignSlot({ matchId: rawMatch.id, slot: 'a', roundNum: parseInt(roundNum), section, isInd })}
-                            className={`p-4 flex items-center gap-3 cursor-pointer transition-colors border-b border-white/5 ${a_id ? 'bg-transparent hover:bg-red-500/5' : rawMatch.prereq_match_a_id ? 'bg-primary/5 hover:bg-primary/10' : 'bg-black/40 hover:bg-white/5 border-dashed'}`}
+                            className={`p-4 flex items-center gap-3 cursor-pointer transition-colors border-b border-white/5 ${a_id ? 'bg-transparent hover:bg-red-500/5' : rawMatch.prereq_match_a_id ? 'bg-primary/5 hover:bg-primary/10' : 'bg-white/40 hover:bg-white/5 border-dashed'}`}
                         >
                             {a_id ? (
                                 <>
-                                    <Avatar className="w-10 h-10 border border-white/20"><AvatarImage src={a_logo} /><AvatarFallback className="bg-primary/20 text-primary text-xs">{a_name?.charAt(0)}</AvatarFallback></Avatar>
-                                    <span className="font-bold truncate text-base">{a_name}</span>
+                                    <Avatar className="w-10 h-10 border border-white/20"><AvatarImage src={a_logo} /><AvatarFallback className="bg-primary/20 text-black text-xs">{a_name?.charAt(0)}</AvatarFallback></Avatar>
+                                    <span className="font-bold truncate text-base text-black">{a_name}</span>
                                 </>
                             ) : rawMatch.prereq_match_a_id ? (
                                 <>
@@ -373,7 +402,7 @@ export default function BracketsPage() {
                         {/* SLOT B */}
                         <div 
                             onClick={() => !rawMatch.is_bye && setAssignSlot({ matchId: rawMatch.id, slot: 'b', roundNum: parseInt(roundNum), section, isInd })}
-                            className={`p-4 flex items-center gap-3 cursor-pointer transition-colors ${rawMatch.is_bye ? 'bg-primary/5 opacity-80 cursor-default' : b_id ? 'bg-transparent hover:bg-blue-500/5' : rawMatch.prereq_match_b_id ? 'bg-primary/5 hover:bg-primary/10' : 'bg-black/40 hover:bg-white/5 border-dashed border-t'}`}
+                            className={`p-4 flex items-center gap-3 cursor-pointer transition-colors ${rawMatch.is_bye ? 'bg-primary/5 opacity-80 cursor-default' : b_id ? 'bg-transparent hover:bg-blue-500/5' : rawMatch.prereq_match_b_id ? 'bg-primary/5 hover:bg-primary/10' : 'bg-white/40 hover:bg-white/5 border-dashed border-t'}`}
                         >
                             {rawMatch.is_bye ? (
                                 <>
@@ -383,7 +412,7 @@ export default function BracketsPage() {
                             ) : b_id ? (
                                 <>
                                     <Avatar className="w-10 h-10 border border-white/20"><AvatarImage src={b_logo} /><AvatarFallback className="bg-primary/20 text-primary text-xs">{b_name?.charAt(0)}</AvatarFallback></Avatar>
-                                    <span className="font-bold truncate text-base">{b_name}</span>
+                                    <span className="font-bold truncate text-base text-black">{b_name}</span>
                                 </>
                             ) : rawMatch.prereq_match_b_id ? (
                                 <>
@@ -400,7 +429,7 @@ export default function BracketsPage() {
                     </div>
                     
                     {/* MATCH SCORE ROUTER */}
-                    <div className="p-3 bg-black/40 border-t border-white/5">
+                    <div className="p-3 bg-white/40 border-t border-black/5">
                         <Button size="sm" className="w-full text-xs font-bold" onClick={() => router.push(`/organizer/match/${rawMatch.id}`)}>
                             Manage Scoring
                         </Button>
@@ -417,7 +446,7 @@ export default function BracketsPage() {
                 {/* --- MODALS --- */}
                 <AnimatePresence>
                     {addMatchModal && (
-                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center bg-white/60 backdrop-blur-sm p-4">
                             <motion.div initial={{ scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 20 }} className="w-full max-w-md">
                                 <GlassCard className="p-6">
                                     <div className="flex justify-between items-center mb-6">
@@ -427,7 +456,7 @@ export default function BracketsPage() {
                                     <div className="space-y-4 mb-6">
                                         <div className="space-y-2">
                                             <Label className="text-muted-foreground">Which Pool / Section?</Label>
-                                            <Input value={newMatchSection} onChange={e => setNewMatchSection(e.target.value)} className="bg-black/40 h-12" placeholder="e.g. Pool A" />
+                                            <Input value={newMatchSection} onChange={e => setNewMatchSection(e.target.value)} className="bg-white/40 h-12" placeholder="e.g. Pool A" />
                                         </div>
                                         <p className="text-xs text-muted-foreground">A TBA vs TBA match will be injected into Round 1 of this pool. You can assign participants afterward.</p>
                                     </div>
@@ -440,7 +469,7 @@ export default function BracketsPage() {
                     )}
 
                     {editMatchSettings && (
-                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center bg-white/60 backdrop-blur-sm p-4">
                             <motion.div initial={{ scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 20 }} className="w-full max-w-md">
                                 <GlassCard className="p-6">
                                     <div className="flex justify-between items-center mb-6">
@@ -450,11 +479,11 @@ export default function BracketsPage() {
                                     <form onSubmit={saveMatchSettings} className="space-y-4 mb-6">
                                         <div className="space-y-2">
                                             <Label className="text-muted-foreground">Match Date</Label>
-                                            <Input name="start_date" type="date" defaultValue={editMatchSettings.start_date || ''} min={tournament.start_date} max={tournament.end_date} className="bg-black/40 h-12" />
+                                            <Input name="start_date" type="date" defaultValue={editMatchSettings.start_date || ''} min={tournament.start_date} max={tournament.end_date} className="bg-white/40 h-12" />
                                         </div>
                                         <div className="space-y-2">
                                             <Label className="text-muted-foreground">Match Time (Local)</Label>
-                                            <Input name="start_time" type="time" defaultValue={editMatchSettings.start_time ? new Date(editMatchSettings.start_time).toISOString().substring(11, 16) : ''} className="bg-black/40 h-12" />
+                                            <Input name="start_time" type="time" defaultValue={editMatchSettings.start_time ? new Date(editMatchSettings.start_time).toISOString().substring(11, 16) : ''} className="bg-white/40 h-12" />
                                         </div>
                                         <Button type="submit" className="w-full h-12 font-bold mt-4" disabled={saving}>
                                             {saving ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : <Save className="w-4 h-4 mr-2"/>} Save Settings
@@ -466,7 +495,7 @@ export default function BracketsPage() {
                     )}
 
                     {assignSlot && (
-                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md p-4">
+                        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 flex items-center justify-center bg-white/60 backdrop-blur-md p-4">
                             <motion.div initial={{ scale: 0.95, y: 20 }} animate={{ scale: 1, y: 0 }} exit={{ scale: 0.95, y: 20 }} className="w-full max-w-md">
                                 <GlassCard className="p-6 max-h-[80vh] flex flex-col">
                                     <div className="flex justify-between items-center mb-4 shrink-0">
@@ -477,9 +506,12 @@ export default function BracketsPage() {
                                     
                                     <div className="overflow-y-auto space-y-2 pr-2 custom-scrollbar">
                                         {getAvailableParticipants().map((p: any) => (
-                                            <div key={p.id} onClick={() => handleAssignPlayer(p.id)} className="flex items-center gap-3 p-3 bg-white/5 border border-white/10 rounded-xl hover:bg-white/10 hover:border-primary/50 cursor-pointer transition-all">
+                                            <div key={p.id} onClick={() => handleAssignPlayer(p.id, p.isShadow)} className="flex items-center gap-3 p-3 bg-white/5 border border-white/10 rounded-xl hover:bg-white/10 hover:border-primary/50 cursor-pointer transition-all">
                                                 <Avatar className="w-10 h-10 border border-white/20"><AvatarImage src={p.logo_url}/><AvatarFallback className="bg-primary/20 text-primary font-bold">{p.name.charAt(0)}</AvatarFallback></Avatar>
-                                                <span className="font-bold">{p.name}</span>
+                                                <div className="flex flex-col">
+                                                    <span className="font-bold">{p.name}</span>
+                                                    {p.isShadow && <span className="text-[9px] text-muted-foreground uppercase font-bold tracking-widest">Offline Proxy</span>}
+                                                </div>
                                             </div>
                                         ))}
                                         {getAvailableParticipants().length === 0 && (
@@ -564,7 +596,7 @@ export default function BracketsPage() {
                             const highestRound = parseInt(roundNumbers[roundNumbers.length - 1]);
 
                             return (
-                                <div key={section} className="bg-black/20 p-4 sm:p-8 rounded-3xl border border-white/5 relative">
+                                <div key={section} className="bg-white/20 p-4 sm:p-8 rounded-3xl border border-white/5 relative">
                                     <h2 className="text-3xl font-black mb-8 border-b border-white/10 pb-4 text-primary tracking-widest uppercase flex items-center justify-between">
                                         {section}
                                         <Button variant="outline" size="sm" onClick={() => handleNextRound(section, highestRound)} disabled={saving} className="bg-white/5 border-white/20 hover:bg-primary/20 hover:border-primary/50 hover:text-primary transition-all">
