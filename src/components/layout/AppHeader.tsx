@@ -4,7 +4,7 @@ import { useState, useEffect } from 'react';
 import { Session } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabaseClient';
 import GlassButton from '@/components/glass/GlassButton';
-import { LogOut, User } from 'lucide-react';
+import { LogOut, User, LayoutDashboard } from 'lucide-react';
 import Link from 'next/link';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -87,7 +87,7 @@ export default function AppHeader() {
                   </div>
                   <div className="space-y-1">
                       <Link href="/profile"><Button variant="ghost" className="w-full justify-start hover:bg-white/5"><User className="w-4 h-4 mr-2" /> My Profile</Button></Link>
-                      <Link href="/dashboard/overview"><Button variant="ghost" className="w-full justify-start hover:bg-white/5">Dashboard</Button></Link>
+                      <Link href="/dashboard/overview"><Button variant="ghost" className="w-full justify-start hover:bg-white/5"><LayoutDashboard className="w-4 h-4 mr-2" />Dashboard</Button></Link>
                   </div>
                   <div className="mt-2 pt-2 border-t border-white/10">
                       <Button variant="ghost" onClick={handleSignOut} className="w-full justify-start text-red-500 hover:text-red-400 hover:bg-red-500/10">

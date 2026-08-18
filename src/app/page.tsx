@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabaseClient'
 import { motion, useScroll, useTransform, Variants } from 'framer-motion'
-import { Trophy, Zap, Shield, ArrowRight, Activity, Users, Play, Loader2 } from 'lucide-react'
+import { Zap, Shield, ArrowRight, Activity, Users, Play, Loader2 } from 'lucide-react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import AppHeader from '@/components/layout/AppHeader'
@@ -286,12 +286,14 @@ export default function LandingPage() {
         {/* --- FOOTER --- */}
         <footer className="bg-slate-50 border-t border-slate-200 py-12 px-4">
           <div className="max-w-7xl mx-auto flex flex-col md:flex-row justify-between items-center gap-6">
-            <div className="flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-primary flex items-center justify-center shadow-sm">
-                <Trophy className="w-5 h-5 text-white" />
-              </div>
+            <Link href="/" className="flex items-center gap-3 hover:opacity-80 transition-opacity">
+              <img 
+                src="/icon.png" 
+                alt="Martial Grid Icon" 
+                className="w-8 h-8 object-contain" 
+              />
               <span className="font-headline font-bold text-xl tracking-tight text-slate-900">MARTIAL GRID</span>
-            </div>
+            </Link>
             
             <div className="flex gap-6 text-sm text-slate-500 font-medium">
               <Link href="/login" className="hover:text-primary transition-colors">Login</Link>
