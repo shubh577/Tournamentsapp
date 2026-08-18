@@ -131,9 +131,13 @@ export default function BracketsPage() {
             match.team_b = teamsMap.get(match.team_b_id) || teamsMap.get(match.shadow_team_b_id) || null;
         });
     
-        const isIndSport = INDIVIDUAL_SPORTS.includes(
-            tournament?.sport?.toLowerCase() || ''
-        );
+        let currentSport = tournament?.sport;
+        if (!currentSport) {
+            const { data: tData } = await supabase.from('tournaments').select('sport').eq('id', tournamentId).single();
+            currentSport = tData?.sport;
+        }
+
+        const isIndSport = INDIVIDUAL_SPORTS.includes(currentSport?.toLowerCase() || '');
     
         if (isIndSport) {
             const matchPlayerIds = new Set<string>();
@@ -341,7 +345,7 @@ export default function BracketsPage() {
         const isInd = isIndSport;
         const a_id = isInd ? (rawMatch.player_a_id || rawMatch.shadow_player_a_id) : (rawMatch.team_a_id || rawMatch.shadow_team_a_id);
         const b_id = isInd ? (rawMatch.player_b_id || rawMatch.shadow_player_b_id) : (rawMatch.team_b_id || rawMatch.shadow_team_b_id);
-
+        
         const a_name = rawMatch.player_a?.name || rawMatch.team_a?.name;
         const b_name = rawMatch.player_b?.name || rawMatch.team_b?.name;
         const a_logo = rawMatch.player_a?.avatar_url || rawMatch.team_a?.logo_url;
@@ -349,23 +353,29 @@ export default function BracketsPage() {
         
         const matchNumber = getMatchNumber(rawMatch.id);
 
+        // --- NEW: SCORE & WINNER LOGIC ---
+        const scores = rawMatch.score_data || {};
+        const scoreA = a_id ? (scores[a_id]?.score || 0) : 0;
+        const scoreB = b_id ? (scores[b_id]?.score || 0) : 0;
+        const isCompleted = rawMatch.status === 'completed';
+        const winnerId = isCompleted ? (scoreA > scoreB ? a_id : (scoreB > scoreA ? b_id : (rawMatch.is_bye ? a_id : null))) : null;
+
         return (
             <div key={rawMatch.id} className="relative group">
                 {/* Visual Canvas Connecting Lines */}
                 {viewMode === 'canvas' && hasNextRound && (
-                    <div className="absolute top-1/2 -right-12 w-12 h-[2px] bg-white/10 -translate-y-1/2 pointer-events-none group-hover:bg-primary/50 transition-colors" />
+                    <div className={`absolute top-1/2 -right-12 w-12 h-[2px] ${isCompleted ? 'bg-primary/50' : 'bg-white/10'} -translate-y-1/2 pointer-events-none transition-colors`} />
                 )}
 
-                <GlassCard className={`p-0 overflow-hidden border-white/10 hover:border-white/20 transition-all flex flex-col shadow-lg relative z-10 bg-[#0a0a0a] ${viewMode === 'canvas' ? 'w-[320px]' : ''}`}>
+                <GlassCard className={`p-0 overflow-hidden ${isCompleted ? 'border-primary/30' : 'border-white/10 hover:border-white/20'} transition-all flex flex-col shadow-lg relative z-10 bg-[#0a0a0a] ${viewMode === 'canvas' ? 'w-[320px]' : ''}`}>
                     
                     {/* MATCH HEADER */}
                     <div className="flex justify-between items-center p-3 bg-white/5 border-b border-white/5">
                         <div className="flex items-center gap-3">
                             <span className="bg-white/10 text-[10px] font-mono px-2 py-0.5 rounded font-bold text-muted-foreground">M-{matchNumber}</span>
-                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                                <Calendar className="w-3.5 h-3.5" />
-                                {rawMatch.start_date || 'TBA'}
-                            </div>
+                            <span className={`text-[10px] uppercase font-bold tracking-widest px-2 py-0.5 rounded ${isCompleted ? 'bg-green-500/20 text-green-400' : rawMatch.status === 'live' ? 'bg-red-500/20 text-red-400 animate-pulse' : 'text-muted-foreground bg-white/5'}`}>
+                                {rawMatch.status}
+                            </span>
                         </div>
                         <div className="flex items-center gap-2">
                             <button onClick={() => setEditMatchSettings(rawMatch)} className="text-muted-foreground hover:text-primary transition-colors p-1" title="Match Settings"><Settings className="w-4 h-4"/></button>
@@ -378,60 +388,80 @@ export default function BracketsPage() {
                         
                         {/* SLOT A */}
                         <div 
-                            onClick={() => setAssignSlot({ matchId: rawMatch.id, slot: 'a', roundNum: parseInt(roundNum), section, isInd })}
-                            className={`p-4 flex items-center gap-3 cursor-pointer transition-colors border-b border-white/5 ${a_id ? 'bg-transparent hover:bg-red-500/5' : rawMatch.prereq_match_a_id ? 'bg-primary/5 hover:bg-primary/10' : 'bg-white/40 hover:bg-white/5 border-dashed'}`}
+                            onClick={() => !isCompleted && setAssignSlot({ matchId: rawMatch.id, slot: 'a', roundNum: parseInt(roundNum), section, isInd })}
+                            className={`p-4 flex items-center justify-between gap-3 ${isCompleted ? 'cursor-default' : 'cursor-pointer'} transition-colors border-b border-white/5 ${a_id ? 'bg-transparent hover:bg-white/5' : rawMatch.prereq_match_a_id ? 'bg-primary/5 hover:bg-primary/10' : 'bg-black/40 hover:bg-white/5 border-dashed'}`}
                         >
-                            {a_id ? (
-                                <>
-                                    <Avatar className="w-10 h-10 border border-white/20"><AvatarImage src={a_logo} /><AvatarFallback className="bg-primary/20 text-black text-xs">{a_name?.charAt(0)}</AvatarFallback></Avatar>
-                                    <span className="font-bold truncate text-base text-black">{a_name}</span>
-                                </>
-                            ) : rawMatch.prereq_match_a_id ? (
-                                <>
-                                    <Trophy className="w-6 h-6 text-primary/50 shrink-0" />
-                                    <span className="font-bold text-primary/70 text-sm truncate">Winner of Match {getMatchNumber(rawMatch.prereq_match_a_id)}</span>
-                                </>
-                            ) : (
-                                <>
-                                    <UserPlus className="w-6 h-6 text-muted-foreground shrink-0 opacity-50" />
-                                    <span className="font-bold text-muted-foreground text-sm uppercase tracking-widest opacity-50">Tap to Assign (TBA)</span>
-                                </>
+                            <div className="flex items-center gap-3 truncate">
+                                {a_id ? (
+                                    <>
+                                        <Avatar className={`w-10 h-10 border ${winnerId === a_id ? 'border-green-400 shadow-[0_0_10px_rgba(74,222,128,0.3)]' : 'border-white/20'}`}>
+                                            <AvatarImage src={a_logo} />
+                                            <AvatarFallback className="bg-primary/20 text-primary text-xs">{a_name?.charAt(0)}</AvatarFallback>
+                                        </Avatar>
+                                        <span className={`font-bold truncate text-base ${winnerId === a_id ? 'text-green-400' : ''}`}>
+                                            {a_name} {winnerId === a_id && <Trophy className="w-4 h-4 inline ml-1 mb-1"/>}
+                                        </span>
+                                    </>
+                                ) : rawMatch.prereq_match_a_id ? (
+                                    <>
+                                        <Trophy className="w-6 h-6 text-primary/50 shrink-0" />
+                                        <span className="font-bold text-primary/70 text-sm truncate">Winner of M-{getMatchNumber(rawMatch.prereq_match_a_id)}</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <UserPlus className="w-6 h-6 text-muted-foreground shrink-0 opacity-50" />
+                                        <span className="font-bold text-muted-foreground text-sm uppercase tracking-widest opacity-50">Tap to Assign (TBA)</span>
+                                    </>
+                                )}
+                            </div>
+                            {(isCompleted || rawMatch.status === 'live') && a_id && (
+                                <span className={`text-xl font-black font-mono ${winnerId === a_id ? 'text-green-400' : 'text-muted-foreground'}`}>{scoreA}</span>
                             )}
                         </div>
 
                         {/* SLOT B */}
                         <div 
-                            onClick={() => !rawMatch.is_bye && setAssignSlot({ matchId: rawMatch.id, slot: 'b', roundNum: parseInt(roundNum), section, isInd })}
-                            className={`p-4 flex items-center gap-3 cursor-pointer transition-colors ${rawMatch.is_bye ? 'bg-primary/5 opacity-80 cursor-default' : b_id ? 'bg-transparent hover:bg-blue-500/5' : rawMatch.prereq_match_b_id ? 'bg-primary/5 hover:bg-primary/10' : 'bg-white/40 hover:bg-white/5 border-dashed border-t'}`}
+                            onClick={() => !rawMatch.is_bye && !isCompleted && setAssignSlot({ matchId: rawMatch.id, slot: 'b', roundNum: parseInt(roundNum), section, isInd })}
+                            className={`p-4 flex items-center justify-between gap-3 ${rawMatch.is_bye || isCompleted ? 'cursor-default' : 'cursor-pointer'} transition-colors ${rawMatch.is_bye ? 'bg-primary/5 opacity-80 cursor-default' : b_id ? 'bg-transparent hover:bg-white/5' : rawMatch.prereq_match_b_id ? 'bg-primary/5 hover:bg-primary/10' : 'bg-black/40 hover:bg-white/5 border-dashed border-t'}`}
                         >
-                            {rawMatch.is_bye ? (
-                                <>
-                                    <Clock className="w-6 h-6 text-primary/50 shrink-0" />
-                                    <span className="font-bold text-primary/70 text-sm tracking-widest uppercase italic">BYE (Advances)</span>
-                                </>
-                            ) : b_id ? (
-                                <>
-                                    <Avatar className="w-10 h-10 border border-white/20"><AvatarImage src={b_logo} /><AvatarFallback className="bg-primary/20 text-primary text-xs">{b_name?.charAt(0)}</AvatarFallback></Avatar>
-                                    <span className="font-bold truncate text-base text-black">{b_name}</span>
-                                </>
-                            ) : rawMatch.prereq_match_b_id ? (
-                                <>
-                                    <Trophy className="w-6 h-6 text-primary/50 shrink-0" />
-                                    <span className="font-bold text-primary/70 text-sm truncate">Winner of Match {getMatchNumber(rawMatch.prereq_match_b_id)}</span>
-                                </>
-                            ) : (
-                                <>
-                                    <UserPlus className="w-6 h-6 text-muted-foreground shrink-0 opacity-50" />
-                                    <span className="font-bold text-muted-foreground text-sm uppercase tracking-widest opacity-50">Tap to Assign (TBA)</span>
-                                </>
+                            <div className="flex items-center gap-3 truncate">
+                                {rawMatch.is_bye ? (
+                                    <>
+                                        <Clock className="w-6 h-6 text-primary/50 shrink-0" />
+                                        <span className="font-bold text-primary/70 text-sm tracking-widest uppercase italic">BYE (Advances)</span>
+                                    </>
+                                ) : b_id ? (
+                                    <>
+                                        <Avatar className={`w-10 h-10 border ${winnerId === b_id ? 'border-green-400 shadow-[0_0_10px_rgba(74,222,128,0.3)]' : 'border-white/20'}`}>
+                                            <AvatarImage src={b_logo} />
+                                            <AvatarFallback className="bg-primary/20 text-primary text-xs">{b_name?.charAt(0)}</AvatarFallback>
+                                        </Avatar>
+                                        <span className={`font-bold truncate text-base ${winnerId === b_id ? 'text-green-400' : ''}`}>
+                                            {b_name} {winnerId === b_id && <Trophy className="w-4 h-4 inline ml-1 mb-1"/>}
+                                        </span>
+                                    </>
+                                ) : rawMatch.prereq_match_b_id ? (
+                                    <>
+                                        <Trophy className="w-6 h-6 text-primary/50 shrink-0" />
+                                        <span className="font-bold text-primary/70 text-sm truncate">Winner of M-{getMatchNumber(rawMatch.prereq_match_b_id)}</span>
+                                    </>
+                                ) : (
+                                    <>
+                                        <UserPlus className="w-6 h-6 text-muted-foreground shrink-0 opacity-50" />
+                                        <span className="font-bold text-muted-foreground text-sm uppercase tracking-widest opacity-50">Tap to Assign (TBA)</span>
+                                    </>
+                                )}
+                            </div>
+                            {(isCompleted || rawMatch.status === 'live') && !rawMatch.is_bye && b_id && (
+                                <span className={`text-xl font-black font-mono ${winnerId === b_id ? 'text-green-400' : 'text-muted-foreground'}`}>{scoreB}</span>
                             )}
                         </div>
                     </div>
                     
                     {/* MATCH SCORE ROUTER */}
-                    <div className="p-3 bg-white/40 border-t border-black/5">
-                        <Button size="sm" className="w-full text-xs font-bold" onClick={() => router.push(`/organizer/match/${rawMatch.id}`)}>
-                            Manage Scoring
+                    <div className="p-3 bg-black/40 border-t border-white/5">
+                        <Button size="sm" variant={isCompleted ? 'secondary' : 'default'} className="w-full text-xs font-bold" onClick={() => router.push(`/organizer/match/${rawMatch.id}`)}>
+                            {isCompleted ? 'View Results' : 'Manage Scoring'}
                         </Button>
                     </div>
                 </GlassCard>

@@ -203,13 +203,52 @@ const ManageTournamentPage = () => {
 
     const fetchMatches = useCallback(async () => {
         setMatchLoading(true);
-        const { data } = await supabase
-            .from('match_details')
+        const { data: matchData, error } = await supabase
+            .from('matches')
             .select('*')
             .eq('tournament_id', tournamentId)
             .order('round_number', { ascending: true });
 
-        if (data) setMatches(data);
+        if (error || !matchData) {
+            setMatchLoading(false);
+            return;
+        }
+
+        const teamIds = [...new Set(matchData.flatMap(m => [m.team_a_id, m.team_b_id]).filter(Boolean))];
+        const shadowTeamIds = [...new Set(matchData.flatMap(m => [m.shadow_team_a_id, m.shadow_team_b_id]).filter(Boolean))];
+        let teamsMap = new Map();
+        
+        if (teamIds.length > 0) { const { data: t } = await supabase.from('teams').select('id, name, logo_url').in('id', teamIds); (t || []).forEach(team => teamsMap.set(team.id, team)); }
+        if (shadowTeamIds.length > 0) { const { data: st } = await supabase.from('shadow_teams').select('id, name').in('id', shadowTeamIds); (st || []).forEach(team => teamsMap.set(team.id, { ...team, logo_url: null })); }
+
+        matchData.forEach(match => {
+            match.team_a = teamsMap.get(match.team_a_id) || teamsMap.get(match.shadow_team_a_id) || null;
+            match.team_b = teamsMap.get(match.team_b_id) || teamsMap.get(match.shadow_team_b_id) || null;
+        });
+
+        // Resolve Individual Profiles if sport dictates it
+        const { data: tData } = await supabase.from('tournaments').select('sport').eq('id', tournamentId).single();
+        const isIndSport = INDIVIDUAL_SPORTS.includes(tData?.sport?.toLowerCase() || '');
+        
+        if (isIndSport) {
+            const matchPlayerIds = new Set<string>();
+            const matchShadowIds = new Set<string>();
+            matchData.forEach(m => {
+                if (m.player_a_id) matchPlayerIds.add(m.player_a_id); if (m.player_b_id) matchPlayerIds.add(m.player_b_id);
+                if (m.shadow_player_a_id) matchShadowIds.add(m.shadow_player_a_id); if (m.shadow_player_b_id) matchShadowIds.add(m.shadow_player_b_id);
+            });
+
+            let profilesMap = new Map();
+            if (matchPlayerIds.size > 0) { const { data: mp } = await supabase.from('profiles').select('id, name, avatar_url').in('id', Array.from(matchPlayerIds)); (mp || []).forEach(p => profilesMap.set(p.id, p)); }
+            if (matchShadowIds.size > 0) { const { data: sp } = await supabase.from('shadow_profiles').select('id, name').in('id', Array.from(matchShadowIds)); (sp || []).forEach(p => profilesMap.set(p.id, { ...p, avatar_url: null })); }
+
+            matchData.forEach(m => {
+                m.player_a = profilesMap.get(m.player_a_id) || profilesMap.get(m.shadow_player_a_id) || null;
+                m.player_b = profilesMap.get(m.player_b_id) || profilesMap.get(m.shadow_player_b_id) || null;
+            });
+        }
+        
+        setMatches(matchData);
         setMatchLoading(false);
     }, [tournamentId]);
 
@@ -1118,22 +1157,58 @@ const ManageTournamentPage = () => {
                                 </div>
                             ) : (
                                 <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
-                                    {matches.map(match => (
-                                        <div key={match.id} className="p-5 bg-white/5 rounded-xl border border-white/10 relative overflow-hidden group hover:border-primary/30 transition-colors">
-                                            <div className="flex justify-between items-center mb-4">
-                                                <span className="text-xs font-bold text-primary uppercase tracking-widest bg-primary/10 px-2 py-1 rounded-sm">{match.round_name || `Round ${match.round_number}`}</span>
-                                                <span className={`text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded-sm ${match.status === 'live' ? 'bg-green-500/10 text-green-400 animate-pulse' : 'bg-white/10 text-muted-foreground'}`}>{match.status}</span>
+                                    {matches.map(match => {
+                                        const a_id = isIndividualSport ? (match.player_a_id || match.shadow_player_a_id) : (match.team_a_id || match.shadow_team_a_id);
+                                        const b_id = isIndividualSport ? (match.player_b_id || match.shadow_player_b_id) : (match.team_b_id || match.shadow_team_b_id);
+                                        const a_name = match.player_a?.name || match.team_a?.name || 'TBA';
+                                        const b_name = match.is_bye ? 'BYE' : (match.player_b?.name || match.team_b?.name || 'TBA');
+                                        const a_logo = match.player_a?.avatar_url || match.team_a?.logo_url;
+                                        const b_logo = match.player_b?.avatar_url || match.team_b?.logo_url;
+
+                                        // Winner and Score resolution
+                                        const scores = match.score_data || {};
+                                        const scoreA = a_id ? (scores[a_id]?.score || 0) : 0;
+                                        const scoreB = b_id ? (scores[b_id]?.score || 0) : 0;
+                                        const isCompleted = match.status === 'completed';
+                                        const winnerId = isCompleted ? (scoreA > scoreB ? a_id : (scoreB > scoreA ? b_id : (match.is_bye ? a_id : null))) : null;
+
+                                        return (
+                                            <div key={match.id} className={`p-5 bg-white/5 rounded-xl border ${isCompleted ? 'border-primary/30' : 'border-white/10 hover:border-primary/30'} relative overflow-hidden group transition-colors`}>
+                                                <div className="flex justify-between items-center mb-4">
+                                                    <span className="text-xs font-bold text-primary uppercase tracking-widest bg-primary/10 px-2 py-1 rounded-sm">{match.round_name || `Round ${match.round_number}`}</span>
+                                                    <span className={`text-[10px] font-bold uppercase tracking-widest px-2 py-1 rounded-sm ${match.status === 'live' ? 'bg-red-500/10 text-red-400 animate-pulse' : isCompleted ? 'bg-green-500/10 text-green-400' : 'bg-white/10 text-muted-foreground'}`}>{match.status}</span>
+                                                </div>
+                                                <div className="space-y-3 relative z-10">
+                                                    <div className="flex items-center justify-between">
+                                                        <div className="flex items-center gap-3 truncate">
+                                                            <Avatar className={`w-8 h-8 border ${winnerId === a_id ? 'border-green-400 shadow-[0_0_10px_rgba(74,222,128,0.3)]' : 'border-transparent'}`}><AvatarImage src={a_logo}/><AvatarFallback className="text-xs bg-white/10">{a_name?.charAt(0)}</AvatarFallback></Avatar>
+                                                            <span className={`font-bold truncate ${winnerId === a_id ? 'text-green-400' : ''}`}>{a_name} {winnerId === a_id && <Trophy className="w-3 h-3 inline ml-1 mb-0.5"/>}</span>
+                                                        </div>
+                                                        {(isCompleted || match.status === 'live') && a_id && <span className={`font-mono font-black ${winnerId === a_id ? 'text-green-400' : 'text-muted-foreground'}`}>{scoreA}</span>}
+                                                    </div>
+                                                    <div className="flex items-center justify-between">
+                                                        <div className="flex items-center gap-3 truncate">
+                                                            {match.is_bye ? (
+                                                                <span className="font-bold tracking-widest uppercase italic text-primary/50 text-sm ml-11">BYE</span>
+                                                            ) : (
+                                                                <>
+                                                                    <Avatar className={`w-8 h-8 border ${winnerId === b_id ? 'border-green-400 shadow-[0_0_10px_rgba(74,222,128,0.3)]' : 'border-transparent'}`}><AvatarImage src={b_logo}/><AvatarFallback className="text-xs bg-white/10">{b_name?.charAt(0)}</AvatarFallback></Avatar>
+                                                                    <span className={`font-bold truncate ${winnerId === b_id ? 'text-green-400' : ''}`}>{b_name} {winnerId === b_id && <Trophy className="w-3 h-3 inline ml-1 mb-0.5"/>}</span>
+                                                                </>
+                                                            )}
+                                                        </div>
+                                                        {(isCompleted || match.status === 'live') && !match.is_bye && b_id && <span className={`font-mono font-black ${winnerId === b_id ? 'text-green-400' : 'text-muted-foreground'}`}>{scoreB}</span>}
+                                                    </div>
+                                                </div>
+                                                <div className="mt-6 pt-4 border-t border-white/5 flex gap-2">
+                                                    {!isCompleted}
+                                                    <Button variant={isCompleted ? 'secondary' : 'default'} size="sm" className="w-full text-xs py-1 h-auto font-bold" onClick={() => router.push(`/organizer/match/${match.id}`)}>
+                                                        {isCompleted ? 'View Results' : 'Score Match'}
+                                                    </Button>
+                                                </div>
                                             </div>
-                                            <div className="space-y-3 relative z-10">
-                                                <div className="flex items-center gap-3"><Avatar className="w-8 h-8"><AvatarImage src={match.team_a_logo}/><AvatarFallback className="text-xs bg-white/10">{match.team_a_name?.charAt(0)}</AvatarFallback></Avatar><span className="font-bold truncate">{match.team_a_name || 'TBA'}</span></div>
-                                                <div className="flex items-center gap-3"><Avatar className="w-8 h-8"><AvatarImage src={match.team_b_logo}/><AvatarFallback className="text-xs bg-white/10">{match.team_b_name?.charAt(0)}</AvatarFallback></Avatar><span className="font-bold truncate">{match.team_b_name || 'TBA'}</span></div>
-                                            </div>
-                                            <div className="mt-6 pt-4 border-t border-white/5 flex gap-2">
-                                                <GlassButton variant="secondary" size="sm" className="w-full text-xs py-1 h-auto"><Clock className="w-3 h-3 mr-1"/> Reschedule</GlassButton>
-                                                <Button size="sm" className="w-full text-xs py-1 h-auto font-bold" onClick={() => router.push(`/organizer/match/${match.id}`)}>Score Match</Button>
-                                            </div>
-                                        </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                             )}
                         </GlassCard>
