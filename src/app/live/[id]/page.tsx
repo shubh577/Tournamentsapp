@@ -24,10 +24,12 @@ export default function PublicLiveMatch() {
         isInd: boolean;
     } | null>(null);
 
-    // Dynamic states (Polled every 1 second)
+    // Dynamic states 
     const [scoreData, setScoreData] = useState<Record<string, any>>({});
     const [timerValue, setTimerValue] = useState<number>(0);
     const [roundName, setRoundName] = useState<string>('Match');
+    const [matchStatus, setMatchStatus] = useState<string>('scheduled');
+    const [showOverlay, setShowOverlay] = useState(true);
     
     // Senshu tracking state
     const [senshuOwnerId, setSenshuOwnerId] = useState<string | null>(null);
@@ -37,7 +39,7 @@ export default function PublicLiveMatch() {
     useEffect(() => {
         if (!matchId) return;
 
-        let intervalId: NodeJS.Timeout;
+        let channel: any;
 
         const startPollingEngine = async () => {
             setLoading(true);
@@ -98,6 +100,7 @@ export default function PublicLiveMatch() {
                 setScoreData(mData.score_data || {});
                 setTimerValue(mData.timer_value || 0);
                 setRoundName(mData.round_name || 'Match');
+                setMatchStatus(mData.status || 'scheduled');
 
                 // Look up historical events once to establish Senshu owner if page loaded mid-match
                 const { data: historicalEvents } = await supabase
@@ -119,31 +122,39 @@ export default function PublicLiveMatch() {
                     }
                 }
 
-                // Step 2: The Independent 1-Second Loop
-                intervalId = setInterval(async () => {
-                    const { data: update, error } = await supabase
-                        .from('matches')
-                        .select('score_data')
-                        .eq('id', matchId)
-                        .single();
+                // Step 2: The Realtime WebSocket Listener (Scores & Timer Broadcasts)
+                channel = supabase.channel(`match-control-${matchId}`)
+                    .on('postgres_changes', { 
+                        event: 'UPDATE', 
+                        schema: 'public', 
+                        table: 'matches', 
+                        filter: `id=eq.${matchId}` 
+                    }, (payload) => {
+                        // DB updates for Score, Status, and Warnings
+                        if (payload.new.score_data) {
+                            const newScores = payload.new.score_data;
+                            setScoreData(newScores);
 
-                    if (!error && update) {
-                        const newScores = update.score_data || {};
-                        setScoreData(newScores);
+                            // Dynamically evaluate Senshu on the fresh payload
+                            setSenshuOwnerId((currentOwner) => {
+                                if (currentOwner) return currentOwner; 
 
-                        // If Senshu isn't claimed yet, analyze the live score state to award it natively
-                        setSenshuOwnerId((currentOwner) => {
-                            if (currentOwner) return currentOwner; 
+                                const scoreA = newScores[targetAId]?.score || 0;
+                                const scoreB = newScores[targetBId]?.score || 0;
 
-                            const scoreA = newScores[targetAId]?.score || 0;
-                            const scoreB = newScores[targetBId]?.score || 0;
-
-                            if (scoreA > 0 && scoreB === 0) return targetAId;
-                            if (scoreB > 0 && scoreA === 0) return targetBId;
-                            return null;
-                        });
-                    }
-                }, 1000);
+                                if (scoreA > 0 && scoreB === 0) return targetAId;
+                                if (scoreB > 0 && scoreA === 0) return targetBId;
+                                return null;
+                            });
+                        }
+                        
+                        if (payload.new.round_name) setRoundName(payload.new.round_name);
+                    })
+                    // NEW: Listen for the high-frequency in-memory timer broadcasts
+                    .on('broadcast', { event: 'timer_sync' }, (payload) => {
+                        setTimerValue(payload.payload.timeLeft);
+                    })
+                    .subscribe();
             }
             setLoading(false);
         };
@@ -151,7 +162,7 @@ export default function PublicLiveMatch() {
         startPollingEngine();
 
         return () => {
-            if (intervalId) clearInterval(intervalId);
+            if (channel) supabase.removeChannel(channel);
         };
     }, [matchId]);
 
@@ -175,6 +186,21 @@ export default function PublicLiveMatch() {
     // Disqualification Rules Condition (5 Warnings triggers automatic DQ)
     const isDisqualifiedA = a_warn >= 5;
     const isDisqualifiedB = b_warn >= 5;
+    // Winner Calculation Engine
+    const isCompleted = matchStatus === 'completed';
+    let winnerName = null;
+    if (isCompleted) {
+        // Evaluate Disqualifications first
+        if (isDisqualifiedA && !isDisqualifiedB) winnerName = metaData.b_name;
+        else if (isDisqualifiedB && !isDisqualifiedA) winnerName = metaData.a_name;
+        // Evaluate points
+        else if (a_score > b_score) winnerName = metaData.a_name;
+        else if (b_score > a_score) winnerName = metaData.b_name;
+        // Senshu tie-breaker (for Karate)
+        else if (hasSenshuA) winnerName = metaData.a_name;
+        else if (hasSenshuB) winnerName = metaData.b_name;
+        else winnerName = 'Draw'; // Fallback
+    }
 
     return (
         <div className="h-screen w-screen flex flex-col text-white font-sans overflow-hidden bg-black">
@@ -190,6 +216,31 @@ export default function PublicLiveMatch() {
             {/* SPLIT SCREEN SCOREBOARD */}
             <div className="flex flex-1 relative">
                 
+                {/* --- NEW: CINEMATIC WINNER OVERLAY --- */}
+                {isCompleted && showOverlay && (
+                    <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-md animate-in fade-in duration-500">
+                        <div className="bg-black/90 border border-primary/30 p-10 rounded-2xl shadow-[0_0_80px_rgba(var(--primary-rgb),0.3)] text-center flex flex-col items-center max-w-2xl w-full mx-4 transform scale-100 animate-in zoom-in-95 duration-500">
+                            <svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-yellow-400 mb-6 drop-shadow-[0_0_20px_rgba(250,204,21,0.6)]"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/></svg>
+                            <h2 className="text-2xl text-muted-foreground font-bold uppercase tracking-widest mb-2">Match Finalized</h2>
+                            
+                            {winnerName === 'Draw' ? (
+                                <div className="text-5xl sm:text-7xl font-black text-white uppercase tracking-tight mt-4">It's a Draw</div>
+                            ) : (
+                                <>
+                                    <div className="text-xl text-primary font-bold tracking-widest uppercase mt-2 mb-2">Official Winner</div>
+                                    <div className="text-5xl sm:text-7xl font-black text-white uppercase tracking-tight leading-tight">{winnerName}</div>
+                                </>
+                            )}
+                            
+                            <div className="flex gap-4 w-full mt-12">
+                                <Button className="flex-1 bg-white/10 hover:bg-white/20 text-white border border-white/20 h-14 text-lg font-bold" onClick={() => setShowOverlay(false)}>
+                                    Exit
+                                </Button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+
                 {/* RED SIDE (AKA) */}
                 <div className="flex-1 bg-red-700 flex flex-col items-center justify-center relative">
                     {/* Disqualified Visual Overlay layer */}

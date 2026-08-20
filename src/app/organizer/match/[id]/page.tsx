@@ -37,6 +37,7 @@ const MatchScoringPage = () => {
     const [isEditingTime, setIsEditingTime] = useState(false);
     const [editMins, setEditMins] = useState("");
     const [editSecs, setEditSecs] = useState("");
+    const channelRef = useRef<any>(null);
 
     useEffect(() => {
         scoreDataRef.current = scoreData;
@@ -69,6 +70,8 @@ const MatchScoringPage = () => {
                 setEvents((prev: any[]) => [payload.new, ...prev]);
             })
             .subscribe();
+
+            channelRef.current = channel;
 
         return () => {
             supabase.removeChannel(channel);
@@ -194,10 +197,16 @@ const MatchScoringPage = () => {
         let interval: NodeJS.Timeout;
         if (isTimerRunning && timeLeft !== null && timeLeft > 0) {
             interval = setInterval(() => {
-                setTimeLeft((prev: number | null) => (prev !== null && prev > 0 ? prev - 1 : 0));
+                setTimeLeft((prev: number | null) => {
+                    const newTime = prev !== null && prev > 0 ? prev - 1 : 0;
+                    // Broadcast the new time to all spectators instantly
+                    channelRef.current?.send({ type: 'broadcast', event: 'timer_sync', payload: { timeLeft: newTime } });
+                    return newTime;
+                });
             }, 1000);
         } else if (isTimerRunning && timeLeft === 0) {
             setIsTimerRunning(false);
+            channelRef.current?.send({ type: 'broadcast', event: 'timer_sync', payload: { timeLeft: 0 } });
             setTimeout(() => {
                 alert(`⏰ TIME IS UP! The clock has hit zero. Please review the scores and finalize the match manually.`);
             }, 500);
@@ -214,6 +223,7 @@ const MatchScoringPage = () => {
     const toggleTimer = () => {
         if (isEditingTime || !isOrganizer) return;
         setIsTimerRunning(!isTimerRunning);
+        channelRef.current?.send({ type: 'broadcast', event: 'timer_sync', payload: { timeLeft } });
     };
 
     const resetTimer = () => {
@@ -222,7 +232,9 @@ const MatchScoringPage = () => {
         setIsEditingTime(false);
         const rules = tournament?.rules || {};
         const durationMins = rules.half_duration || rules.quarter_duration || rules.period_duration || rules.match_duration || 10;
-        setTimeLeft(Number(durationMins) * 60);
+        const newTime = Number(durationMins) * 60;
+        setTimeLeft(newTime);
+        channelRef.current?.send({ type: 'broadcast', event: 'timer_sync', payload: { timeLeft: newTime } });
     };
 
     const handleEditTimeClick = () => {
@@ -231,12 +243,17 @@ const MatchScoringPage = () => {
         setEditMins(Math.floor((timeLeft || 0) / 60).toString());
         setEditSecs(((timeLeft || 0) % 60).toString());
         setIsEditingTime(true);
+        channelRef.current?.send({ type: 'broadcast', event: 'timer_sync', payload: { timeLeft } });
     };
 
     const handleSaveTime = () => {
         const m = parseInt(editMins || "0", 10);
         const s = parseInt(editSecs || "0", 10);
-        if (!isNaN(m) && !isNaN(s)) setTimeLeft((m * 60) + s);
+        if (!isNaN(m) && !isNaN(s)) {
+            const newTime = (m * 60) + s;
+            setTimeLeft(newTime);
+            channelRef.current?.send({ type: 'broadcast', event: 'timer_sync', payload: { timeLeft: newTime } });
+        }
         setIsEditingTime(false);
     };
 
